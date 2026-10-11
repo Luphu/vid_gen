@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
 
 import httpx
 import pytest
@@ -276,3 +277,33 @@ def test_kids_trend_public_signals_dynamic_edit(settings_env):
     assert edit["shots"] >= 9 and edit["avg_shot_s"] <= 2.0 and edit["first_shot_s"] == 1.2
     qc = d.store.get_stage(job.id, "validate")["qc"]
     assert any(c["name"] == "pacing" and c["ok"] for c in qc["checks"])
+
+
+def test_render_recovers_empty_narration_and_blocks_on_broken_clip(settings_env, monkeypatch):
+    d = _deps(settings_env)
+    real = pipeline.stage_render
+    monkeypatch.setattr(pipeline, "stage_render", lambda dd, j: (_ for _ in ()).throw(RuntimeError("power cut")))
+    with pytest.raises(RuntimeError):
+        pipeline.run_once(d)
+    monkeypatch.setattr(pipeline, "stage_render", real)
+    job = _job(d)
+    assert job.state == JobState.GENERATED
+    root = d.artifacts.root / "jobs" / job.id
+    for wav in (root / "audio").glob("*.wav"):
+        wav.write_bytes(b"")  # what the SD card left after the power loss
+    shutil.rmtree(d.s.work_dir, ignore_errors=True)
+    calls = d.video.calls
+    job = pipeline.advance(d, job)
+    assert job.state == JobState.DONE_DRY_RUN and d.video.calls == calls  # TTS redone, no paid regeneration
+    assert all(w.stat().st_size > 1024 for w in (root / "audio").glob("*.wav"))
+
+    d2 = _deps(dict(settings_env, DATABASE_URL=settings_env["DATABASE_URL"] + "2"))
+    monkeypatch.setattr(pipeline, "stage_render", lambda dd, j: (_ for _ in ()).throw(RuntimeError("power cut")))
+    with pytest.raises(RuntimeError):
+        pipeline.run_once(d2)
+    monkeypatch.setattr(pipeline, "stage_render", real)
+    job2 = _job(d2)
+    (d2.artifacts.root / "jobs" / job2.id / "scenes" / "01.mp4").write_bytes(b"")
+    shutil.rmtree(d2.s.work_dir, ignore_errors=True)
+    job2 = pipeline.advance(d2, job2)
+    assert job2.state == JobState.REVIEW_REQUIRED and "scenes [1]" in job2.reason

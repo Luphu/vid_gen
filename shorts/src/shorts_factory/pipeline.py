@@ -25,7 +25,7 @@ from typing import Any
 from .analysis import analyze_full_media, analyze_metadata_only, analyze_public_signals
 from .budget import BudgetGuard
 from .config import ConfigError, Settings
-from .ff import FF
+from .ff import FF, FFmpegError
 from .media import ReferenceMediaSource
 from .models import BLOCKED, TERMINAL, Analysis, Candidate, FormatStatus, JobState, QCReport, Script, UploadRequest
 from .net import AuthError, BudgetExceeded, OutcomeUnknown, ProviderError
@@ -364,6 +364,16 @@ def _fetch(d: Deps, key: str, dest: Path) -> Path:
     return dest if dest.is_file() else d.artifacts.get_file(key, dest)
 
 
+def _media_ok(d: Deps, p: Path) -> bool:
+    if not p.is_file() or p.stat().st_size < 1024:
+        return False
+    try:
+        d.ff.probe(p)
+        return True
+    except FFmpegError:
+        return False
+
+
 def _music(d: Deps, work: Path) -> Path | None:
     if not d.s.music_file_key:
         return None
@@ -383,7 +393,21 @@ def stage_render(d: Deps, job: Job) -> Job:
     work = _work(d, job)
     scenes = [(sc, _fetch(d, r["key"], work / "scenes" / f"{sc.index:02d}.mp4"))
               for sc, r in zip(script.scenes, gen["scenes"], strict=True)]
-    narr = [(_fetch(d, k, work / "audio" / Path(k).name) if k else None) for k in gen["narration"]]
+    broken = [sc.index for sc, p in scenes if not _media_ok(d, p)]
+    if broken:  # paid clips: never regenerate silently
+        return _review(d, job, f"generated clips unreadable after storage failure: scenes {broken}; "
+                               f"`shorts retry {job.id} --stage generate --regenerate-scenes "
+                               f"{','.join(map(str, broken))}` (billable)", None)
+    narr = []
+    for sc, k in zip(script.scenes, gen["narration"], strict=True):
+        p = _fetch(d, k, work / "audio" / Path(k).name) if k else None
+        if p is not None and not _media_ok(d, p):  # cheap: re-synthesize instead of failing
+            log.warning("narration %s unreadable (size %d); re-synthesizing", k, p.stat().st_size)
+            p.unlink(missing_ok=True)
+            p = d.tts.synthesize(sc.narration, script.language, p, sc.duration_s) if d.tts else None
+            if p is not None:
+                d.artifacts.put_file(k, p, "audio/wav")
+        narr.append(p)
     music = _music(d, work)
     out, shots = render(d.s, d.ff, script, RenderInputs(scenes, narr, music), work / "render")
     key = f"jobs/{job.id}/final.mp4"
