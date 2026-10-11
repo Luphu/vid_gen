@@ -50,7 +50,7 @@ def settings_env(tmp_path):
         "TREND_FIXTURE_FILE": str(fixture), "TTS_PROVIDER": "mock", "BUDGET_VIDEO_REQUESTS_PER_DAY": "20",
         "BUDGET_VIDEO_REQUESTS_PER_JOB": "8", "NIM_VIDEO_RESOLUTION": "256_9_16", "OUT_WIDTH": "360",
         "OUT_HEIGHT": "640", "FONT_FILE": _font(), "BURN_SUBTITLES": "true" if _font() else "false",
-        "FFMPEG_THREADS": "2",
+        "FFMPEG_THREADS": "2", "VIDEO_PROVIDER": "nvidia",
     }
 
 

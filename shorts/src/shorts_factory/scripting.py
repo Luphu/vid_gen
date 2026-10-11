@@ -36,17 +36,26 @@ def originality_issues(script: Script, ref: Candidate, analysis: Analysis, max_o
     return issues
 
 
-def generate_script(s: Settings, text_client, candidate: Candidate, analysis: Analysis) -> tuple[Script, str]:
+def pick_format(s: Settings, key: str) -> str:
+    """Deterministic per job, rotates across jobs to avoid one repeated template."""
+    import hashlib
+
+    formats = s.content_formats or ["короткий ролик"]
+    return formats[int(hashlib.sha256(key.encode()).hexdigest(), 16) % len(formats)]
+
+
+def generate_script(s: Settings, text_client, candidate: Candidate, analysis: Analysis,
+                    fmt: str = "короткий ролик") -> tuple[Script, str]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
-    p = prompts.load("script_v1")
+    p = prompts.load("script_v2")
     max_scene = min(s.max_scene_seconds, 20.0)
     min_scenes = max(1, int(-(-s.target_min_s // max_scene)))  # ceil
     analysis_view = analysis.model_dump(include={"mode", "topic", "hook", "structure", "pacing",
                                                  "audience_interest_hypothesis", "limitations"})
     msg = p.render(language=s.content_language, audience=s.target_audience, min_s=s.target_min_s,
                    max_s=s.target_max_s, min_scenes=min_scenes, max_scenes=min(10, min_scenes + 3),
-                   max_scene_s=round(max_scene, 2), region="center", made_for_kids="false",
+                   max_scene_s=round(max_scene, 2), region="center", made_for_kids="false", format=fmt,
                    analysis_json=prompts.untrusted(analysis_view))
     messages = [{"role": "user", "content": msg}]
     script, _ = text_client.structured(messages, Script, max_tokens=s.nim_text_max_tokens)
@@ -66,6 +75,8 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
     return script, p.ref
 
 
-def frames_for(duration_s: float, fps: int, max_frames: int) -> int:
-    """Generator frame count for a scene; at least 25 (documented minimum)."""
-    return max(25, min(max_frames, int(round(duration_s * fps)) + 1))
+def frames_for(duration_s: float, fps: int, min_frames: int, max_frames: int) -> int:
+    """Generator frame count for a scene within the model's documented range.
+
+    A clip longer than the scene (min_frames) is trimmed in render."""
+    return max(min_frames, min(max_frames, int(round(duration_s * fps)) + 1))

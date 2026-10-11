@@ -7,8 +7,8 @@ metadata:
   name: shorts-pipeline
   labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: pipeline }
 spec:
-  schedule: "15 6 * * *"
-  timeZone: Etc/UTC
+  schedule: "0 9,12,15,18,21 * * *"   # up to DAILY_VIDEO_LIMIT videos/day, one per run
+  timeZone: Asia/Tbilisi
   suspend: true               # enable after `shorts doctor` passes (overlay patch)
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 3600
@@ -39,6 +39,7 @@ spec:
                 - configMapRef: { name: shorts-config }
                 - secretRef: { name: shorts-db }
                 - secretRef: { name: shorts-app }
+                - secretRef: { name: shorts-replicate, optional: true }
                 - secretRef: { name: shorts-nvidia, optional: true }
                 - secretRef: { name: shorts-youtube, optional: true }
                 - secretRef: { name: shorts-s3, optional: true }
@@ -53,11 +54,14 @@ spec:
               volumeMounts:
                 - { name: work, mountPath: /work }
                 - { name: tmp, mountPath: /tmp }
+                - { name: artifacts, mountPath: /data }
           volumes:
             - name: work
               emptyDir: { sizeLimit: 4Gi }
             - name: tmp
               emptyDir: { sizeLimit: 256Mi }
+            - name: artifacts
+              persistentVolumeClaim: { claimName: shorts-artifacts }
 ---
 # Retention: YouTube API data (<=25 days), artifacts (ARTIFACT_RETENTION_DAYS), stale work dirs.
 apiVersion: batch/v1
@@ -105,11 +109,15 @@ spec:
               volumeMounts:
                 - { name: work, mountPath: /work }
                 - { name: tmp, mountPath: /tmp }
+                - { name: artifacts, mountPath: /data }
           volumes:
             - { name: work, emptyDir: { sizeLimit: 64Mi } }
             - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+            - name: artifacts
+              persistentVolumeClaim: { claimName: shorts-artifacts }
 ---
-# Nightly logical backup: pg_dump (postgres image) -> emptyDir -> S3 via the app image.
+# Nightly logical backup to a PVC on ANOTHER node (overlay pins it): a dead DB node does not take the
+# backups with it. Keeps BACKUP_KEEP_DAYS days of pg_dump files.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -117,7 +125,7 @@ metadata:
   labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: backup }
 spec:
   schedule: "10 3 * * *"
-  timeZone: Etc/UTC
+  timeZone: Asia/Tbilisi
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 2
@@ -131,16 +139,28 @@ spec:
           labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: backup }
         spec:
           restartPolicy: Never
-          imagePullSecrets: [{ name: ghcr-pull }]
           securityContext:
             runAsNonRoot: true
-            runAsUser: 10001
-            fsGroup: 10001
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
             seccompProfile: { type: RuntimeDefault }
-          initContainers:
+          containers:
             - name: dump
               image: postgres:17.6-alpine
-              command: [sh, -c, 'pg_dump --format=custom --no-owner --file=/backup/shorts.dump "$DATABASE_URL"']
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  f=/backup/shorts-$(date +%Y-%m-%d).dump
+                  pg_dump --format=custom --no-owner --file="$f.part" "$DATABASE_URL"
+                  pg_restore --list "$f.part" >/dev/null   # the archive must be readable
+                  mv "$f.part" "$f"
+                  find /backup -name 'shorts-*.dump' -mtime +"${BACKUP_KEEP_DAYS:-14}" -delete
+                  ls -l /backup
+              env:
+                - { name: BACKUP_KEEP_DAYS, value: "14" }
               envFrom:
                 - secretRef: { name: shorts-db }
               resources:
@@ -152,25 +172,6 @@ spec:
                 capabilities: { drop: [ALL] }
               volumeMounts:
                 - { name: backup, mountPath: /backup }
-          containers:
-            - name: upload
-              image: ghcr.io/luphu/nim/shorts
-              args: [--json-logs, backup-upload, /backup/shorts.dump]
-              envFrom:
-                - configMapRef: { name: shorts-config }
-                - secretRef: { name: shorts-db }
-                - secretRef: { name: shorts-app }
-                - secretRef: { name: shorts-s3, optional: true }
-              resources:
-                requests: { cpu: 20m, memory: 96Mi }
-                limits:   { memory: 256Mi }
-              securityContext:
-                allowPrivilegeEscalation: false
-                readOnlyRootFilesystem: true
-                capabilities: { drop: [ALL] }
-              volumeMounts:
-                - { name: backup, mountPath: /backup }
-                - { name: tmp, mountPath: /tmp }
           volumes:
-            - { name: backup, emptyDir: { sizeLimit: 512Mi } }
-            - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+            - name: backup
+              persistentVolumeClaim: { claimName: shorts-backups }

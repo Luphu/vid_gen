@@ -90,9 +90,14 @@ def cmd_doctor(s: Settings, args) -> int:
         chk("artifact storage", False, type(e).__name__ + ": " + str(e)[:200], blocking="storage unavailable")
 
     if s.provider_mode == "nvidia":
-        chk("NVIDIA_API_KEY set", creds["nvidia_api_key"], blocking="NVIDIA_API_KEY missing")
-        chk("NIM_VIDEO_URL set", bool(s.nim_video_url), s.nim_video_url or "not configured",
-            blocking="video generator endpoint not configured (docs/capabilities.md §1.3)")
+        need_replicate = "replicate" in (s.text_provider, s.video_provider, s.tts_provider)
+        if need_replicate:
+            chk("REPLICATE_API_TOKEN set", bool(s.replicate_api_token), blocking="REPLICATE_API_TOKEN missing")
+        if s.text_provider == "nvidia" or s.video_provider == "nvidia":
+            chk("NVIDIA_API_KEY set", creds["nvidia_api_key"], blocking="NVIDIA_API_KEY missing")
+        if s.video_provider == "nvidia":
+            chk("NIM_VIDEO_URL set", bool(s.nim_video_url), s.nim_video_url or "not configured",
+                blocking="video generator endpoint not configured (docs/capabilities.md §1.3)")
         chk("video budget > 0", s.budget.video_requests_per_day > 0,
             f"BUDGET_VIDEO_REQUESTS_PER_DAY={s.budget.video_requests_per_day}",
             blocking="generation disabled until BUDGET_VIDEO_REQUESTS_PER_DAY > 0")
@@ -139,12 +144,23 @@ def _doctor_live(s: Settings, chk, st) -> None:
             "not listed; vision calls may 404" if s.nim_vision_model not in ids else "")
     except httpx.HTTPError as e:
         chk("nim /v1/models", False, type(e).__name__)
+    if s.replicate_api_token:
+        hdr = {"Authorization": f"Bearer {s.replicate_api_token.get_secret_value()}"}
+        try:
+            r = http.get(f"{s.replicate_api_base}/account", headers=hdr)
+            chk("replicate token", r.status_code == 200,
+                f"HTTP {r.status_code}" + (f", account {r.json().get('username')}" if r.status_code == 200 else ""))
+            for m in {s.replicate_text_model, s.replicate_video_model, s.replicate_tts_model}:
+                r = http.get(f"{s.replicate_api_base}/models/{m}", headers=hdr)
+                chk(f"replicate model {m}", r.status_code == 200, f"HTTP {r.status_code}")
+        except httpx.HTTPError as e:
+            chk("replicate token", False, type(e).__name__)
     if s.nvidia_api_key and st is not None:
         from .providers.nim_chat import NimTextClient
 
         try:
             txt, _ = NimTextClient(s, BudgetGuard(st, s.budget)).chat(
-                [{"role": "user", "content": "Reply with the single word OK."}], max_tokens=8)
+                [{"role": "user", "content": "Reply with the single word OK."}], max_tokens=64)
             chk("nim text completion", bool(txt), "1 short request (counted in nim_text budget)")
         except Exception as e:  # noqa: BLE001
             chk("nim text completion", False, f"{type(e).__name__}: {str(e)[:200]}")
@@ -183,19 +199,23 @@ def cmd_smoke(s: Settings, args) -> int:
               "Re-run with --i-accept-cost after setting BUDGET_VIDEO_REQUESTS_PER_DAY.", file=sys.stderr)
         return 2
     if s.provider_mode != "nvidia":
-        print("smoke-test requires PROVIDER_MODE=nvidia", file=sys.stderr)
+        print("smoke-test requires real providers (PROVIDER_MODE=nvidia)", file=sys.stderr)
         return 2
-    from .providers.nim_video import NimVideoClient, VideoRequest
+    from .providers.nim_video import VideoRequest
     from .qc import check_scene
 
     d = _deps(s)
+    if d.video is None:
+        print("video provider not configured (REPLICATE_API_TOKEN / NIM_VIDEO_URL)", file=sys.stderr)
+        return 2
     out = Path(s.work_dir) / "smoke" / f"smoke_{int(time.time())}.mp4"
+    frames = s.gen_min_frames
     req = VideoRequest(prompt="A paper boat floating on a calm pond at sunrise, gentle ripples, vertical framing, "
-                       "photorealistic, slow camera push-in", num_frames=25, fps=s.nim_video_fps,
-                       resolution=args.resolution)
+                       "photorealistic, slow camera push-in", num_frames=frames, fps=s.gen_fps,
+                       resolution=args.resolution or s.gen_resolution)
     t0 = time.time()
-    rid = NimVideoClient(s, d.budget).generate(req, out)
-    qc = check_scene(s, d.ff, out, 25 / s.nim_video_fps)
+    rid = d.video.generate(req, out)
+    qc = check_scene(s, d.ff, out, frames / s.gen_fps)
     _print({"request_id": rid, "seconds": round(time.time() - t0, 1), "file": str(out),
             "qc": qc.model_dump(), "probe": d.ff.probe(out).get("streams", [])[:1]})
     return 0 if qc.ok else 1
@@ -385,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--live", action="store_true")
     sm = sub.add_parser("smoke-test", help="ONE real billable video generation (25 frames)")
     sm.add_argument("--i-accept-cost", action="store_true")
-    sm.add_argument("--resolution", default="256_9_16")
+    sm.add_argument("--resolution", default=None, help="default: provider resolution (e.g. 480p for cheapest)")
     sub.add_parser("discover")
     r = sub.add_parser("run")
     r.add_argument("--dry-run", action="store_true", help="force DRY_RUN for this run")

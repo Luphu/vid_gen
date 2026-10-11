@@ -92,10 +92,10 @@ class NimVideoClient:
         return body
 
     def generate(self, req: VideoRequest, out: Path, on_submitted=None) -> str | None:
-        if not (25 <= req.num_frames <= self.s.nim_video_max_frames):
+        if not (25 <= req.num_frames <= self.s.nim_video_max_frames):  # documented 720p tier range
             raise ProviderError(f"num_frames {req.num_frames} outside [25, {self.s.nim_video_max_frames}]")
         body = self.build_body(req)
-        self.budget.reserve("nim_video")
+        self.budget.reserve("video")
         with self.limiter:
             resp = send_with_retry(
                 lambda: self.http.post(self.s.nim_video_url, json=body, headers=self._headers()),

@@ -103,12 +103,12 @@ def test_job_transitions_atomic_and_idempotent(store):
 
 def test_budget_reservation_is_capped(store):
     g = BudgetGuard(store, Budget(video_requests_per_day=2))
-    g.reserve("nim_video")
-    g.reserve("nim_video")
+    g.reserve("video")
+    g.reserve("video")
     with pytest.raises(BudgetExceeded):
-        g.reserve("nim_video")
+        g.reserve("video")
     with pytest.raises(BudgetExceeded, match="set BUDGET_"):
-        BudgetGuard(store, Budget(video_requests_per_day=0)).reserve("nim_video")
+        BudgetGuard(store, Budget(video_requests_per_day=0)).reserve("video")
 
 
 def test_lock_is_exclusive_and_expires(store):

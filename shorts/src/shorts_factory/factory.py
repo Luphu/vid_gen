@@ -15,8 +15,8 @@ from .store import Store
 
 
 def register_secrets(s: Settings) -> None:
-    for v in (s.nvidia_api_key, s.youtube_api_key, s.youtube_client_secret, s.youtube_refresh_token,
-              s.s3_secret_access_key, s.upload_uri_key, s.database_url):
+    for v in (s.nvidia_api_key, s.replicate_api_token, s.youtube_api_key, s.youtube_client_secret,
+              s.youtube_refresh_token, s.s3_secret_access_key, s.upload_uri_key, s.database_url):
         register_secret(v.get_secret_value() if v else None)
 
 
@@ -28,6 +28,10 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
     ff = FF(threads=s.ffmpeg_threads, timeout_s=s.ffmpeg_timeout_s)
     d = Deps(s=s, store=store, budget=budget, artifacts=make_store(s), media=make_media_source(s), ff=ff,
              tts=make_tts(s.tts_provider, ff))
+    if s.tts_provider == "replicate" and s.provider_mode != "mock":
+        from .providers.replicate import ReplicateTTS
+
+        d.tts = ReplicateTTS(s, budget, ff)
 
     if s.trend_source == "fixture":
         from .trends.fixture import FixtureTrendSource
@@ -51,9 +55,19 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
         from .providers.nim_video import NimVideoClient
 
         limiter = ConcurrencyLimiter(s.nim_max_concurrency)
-        d.text = NimTextClient(s, budget, limiter=limiter)
-        d.vision = NimVisionClient(s, budget, limiter=limiter)
-        d.video = NimVideoClient(s, budget, limiter=limiter) if s.nim_video_url else None
+        d.vision = NimVisionClient(s, budget, limiter=limiter) if s.nvidia_api_key else None
+        if s.text_provider == "replicate":
+            from .providers.replicate import ReplicateText
+
+            d.text = ReplicateText(s, budget, limiter=limiter) if s.replicate_api_token else None
+        else:
+            d.text = NimTextClient(s, budget, limiter=limiter)
+        if s.video_provider == "replicate":
+            from .providers.replicate import ReplicateVideo
+
+            d.video = ReplicateVideo(s, budget, limiter=limiter) if s.replicate_api_token else None
+        else:
+            d.video = NimVideoClient(s, budget, limiter=limiter) if s.nim_video_url else None
 
     if not s.dry_run:
         d.youtube = make_youtube(s, store, budget)
@@ -77,5 +91,6 @@ def make_youtube(s: Settings, store: Store, budget: BudgetGuard):
 
 
 def _gen_size(s: Settings) -> tuple[int, int]:
-    sizes = {"256_9_16": (192, 320), "480_9_16": (480, 832), "720_9_16": (720, 1280)}
-    return sizes.get(s.nim_video_resolution, (s.out_width, s.out_height))
+    sizes = {"256_9_16": (192, 320), "480_9_16": (480, 832), "720_9_16": (720, 1280), "480p": (480, 832),
+             "720p": (720, 1280)}
+    return sizes.get(s.gen_resolution, (s.out_width, s.out_height))

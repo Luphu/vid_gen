@@ -5,10 +5,11 @@ labels:
   - pairs: { app.kubernetes.io/part-of: shorts }
     includeSelectors: false
 resources:
+  - pvc.yaml
   - postgres.yaml
   - pipeline.yaml
   - networkpolicy.yaml
-# Non-secret configuration. Secrets (shorts-db, shorts-app, shorts-nvidia, shorts-youtube, shorts-s3)
+# Non-secret configuration. Secrets (shorts-db, shorts-app, shorts-replicate, shorts-nvidia, shorts-youtube)
 # are created outside Git by scripts/create-shorts-secrets.sh.
 configMapGenerator:
   - name: shorts-config
@@ -19,8 +20,11 @@ configMapGenerator:
       - PROVIDER_MODE=nvidia
       - TREND_SOURCE=youtube
       - REFERENCE_SOURCE=none
-      - STORAGE_BACKEND=s3
-      - TTS_PROVIDER=none
+      - STORAGE_BACKEND=local
+      - STORAGE_LOCAL_DIR=/data/storage
+      - TEXT_PROVIDER=replicate
+      - VIDEO_PROVIDER=replicate
+      - TTS_PROVIDER=replicate
       - WORK_DIR=/work/tmp
       - MAX_WORK_DIR_BYTES=3221225472
       - FFMPEG_THREADS=2
@@ -30,5 +34,6 @@ configMapGenerator:
       - PUBLISH_DAILY_LIMIT=1
       - BUDGET_VIDEO_REQUESTS_PER_DAY=0
       - BUDGET_VIDEO_REQUESTS_PER_JOB=6
+      - PUBLISH_MADE_FOR_KIDS=false
       - ARTIFACT_RETENTION_DAYS=14
       - YOUTUBE_DATA_RETENTION_DAYS=25

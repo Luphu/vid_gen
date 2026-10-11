@@ -24,7 +24,8 @@ class StructuredOutputError(RuntimeError):
 
 
 class _ChatBase:
-    bucket = "nim_text"
+    bucket = "text"
+    extra_body: dict = {}
 
     def __init__(self, s: Settings, budget: BudgetGuard, url: str, model: str,
                  client: httpx.Client | None = None, limiter: ConcurrencyLimiter | None = None):
@@ -41,6 +42,7 @@ class _ChatBase:
              json_mode: bool = False) -> tuple[str, str | None]:
         body: dict = {"model": self.model, "messages": messages, "max_tokens": max_tokens,
                       "temperature": temperature, "stream": False}
+        body.update(self.extra_body)
         if json_mode and self.s.nim_text_response_format == "json_object":
             body["response_format"] = {"type": "json_object"}
         self.budget.reserve(self.bucket)
@@ -78,14 +80,16 @@ class _ChatBase:
 
 
 class NimTextClient(_ChatBase):
-    bucket = "nim_text"
+    bucket = "text"
 
     def __init__(self, s: Settings, budget: BudgetGuard, **kw):
         super().__init__(s, budget, s.nim_text_url, s.nim_text_model, **kw)
+        if s.nim_text_disable_thinking:  # reasoning tokens are billed and discarded anyway
+            self.extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 class NimVisionClient(_ChatBase):
-    bucket = "nim_vision"
+    bucket = "vision"
 
     def __init__(self, s: Settings, budget: BudgetGuard, **kw):
         super().__init__(s, budget, s.nim_vision_url, s.nim_vision_model, **kw)

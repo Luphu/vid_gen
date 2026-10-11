@@ -42,6 +42,7 @@ class Budget(BaseModel):
 
     text_requests_per_day: int = 40
     vision_requests_per_day: int = 10
+    tts_requests_per_day: int = 40
     video_requests_per_day: int = 0
     video_requests_per_job: int = 6
     yt_search_calls_per_day: int = 10
@@ -62,7 +63,9 @@ class Settings(BaseModel):
 
     dry_run: bool = True
     auto_publish: bool = False
-    provider_mode: Literal["nvidia", "mock"] = "nvidia"
+    provider_mode: Literal["nvidia", "mock"] = "nvidia"  # legacy switch: mock replaces every provider
+    text_provider: Literal["nvidia", "replicate"] = "replicate"
+    video_provider: Literal["nvidia", "replicate"] = "replicate"
 
     # NVIDIA
     nvidia_api_key: SecretStr | None = None
@@ -70,6 +73,7 @@ class Settings(BaseModel):
     nim_text_model: str = "nvidia/nemotron-3-super-120b-a12b"
     nim_text_response_format: Literal["none", "json_object"] = "none"
     nim_text_max_tokens: int = 2048
+    nim_text_disable_thinking: bool = True  # chat_template_kwargs.enable_thinking=false (verified on nemotron-3)
     nim_vision_url: str = NVIDIA_CHAT_URL
     nim_vision_model: str = "nvidia/cosmos-reason2-8b"
     nim_vision_input: Literal["image_url", "video_frames"] = "image_url"
@@ -85,6 +89,21 @@ class Settings(BaseModel):
     nim_max_concurrency: int = 1
     nim_max_retries: int = 4
     nim_max_response_bytes: int = 96 * 1024**2
+
+    # Replicate (https://replicate.com/docs/reference/http)
+    replicate_api_token: SecretStr | None = None
+    replicate_api_base: str = "https://api.replicate.com/v1"
+    replicate_output_host_suffix: str = "replicate.delivery"
+    replicate_text_model: str = "qwen/qwen3-235b-a22b-instruct-2507"
+    replicate_video_model: str = "wan-video/wan-2.2-t2v-fast"
+    replicate_video_resolution: str = "720p"
+    replicate_video_fps: int = 16          # model prices by duration at 16 fps
+    replicate_video_min_frames: int = 81   # schema: 81..121
+    replicate_video_max_frames: int = 121
+    replicate_video_extra: dict = Field(default_factory=dict)
+    replicate_tts_model: str = "minimax/speech-02-turbo"
+    replicate_tts_voice: str = "Russian_ReliableMan"
+    replicate_poll_interval_s: float = 3.0
 
     budget: Budget = Field(default_factory=Budget)
 
@@ -142,8 +161,12 @@ class Settings(BaseModel):
 
     # Content
     content_language: str = "ru"
-    target_audience: str = "взрослые зрители, интересующиеся технологиями и ИИ"
-    tts_provider: Literal["none", "mock"] = "none"
+    target_audience: str = "широкая аудитория 13+, интересующаяся технологиями и необычными фактами; не детский контент"
+    tts_provider: Literal["none", "mock", "replicate"] = "none"
+    content_formats: list[str] = Field(default_factory=lambda: [
+        "необычный факт с объяснением", "мини-история с неожиданным поворотом", "было/стало",
+        "три коротких факта", "вопрос и ответ"])
+    trend_refresh_hours: int = 12  # reuse unused candidates fetched within this window instead of searching again
     music_file_key: str = ""  # storage key of a licensed track; its manifest must exist next to it
 
     # YouTube upload
@@ -183,9 +206,26 @@ class Settings(BaseModel):
             raise ValueError("TARGET_MIN_S > TARGET_MAX_S")
         return self
 
+    # Generator-neutral video parameters
+    @property
+    def gen_fps(self) -> int:
+        return self.replicate_video_fps if self.video_provider == "replicate" else self.nim_video_fps
+
+    @property
+    def gen_min_frames(self) -> int:
+        return self.replicate_video_min_frames if self.video_provider == "replicate" else 25
+
+    @property
+    def gen_max_frames(self) -> int:
+        return self.replicate_video_max_frames if self.video_provider == "replicate" else self.nim_video_max_frames
+
+    @property
+    def gen_resolution(self) -> str:
+        return self.replicate_video_resolution if self.video_provider == "replicate" else self.nim_video_resolution
+
     @property
     def max_scene_seconds(self) -> float:
-        return self.nim_video_max_frames / self.nim_video_fps
+        return self.gen_max_frames / self.gen_fps
 
     def require(self, *names: str) -> None:
         missing = [n for n in names if not getattr(self, n)]
