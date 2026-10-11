@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import prompts
 from .config import Settings
@@ -11,6 +14,32 @@ from .models import Analysis, Candidate, Script
 
 class ScriptRejected(RuntimeError):
     """Valid JSON, but violates production limits or originality checks."""
+
+
+class Claim(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    text: str = Field(max_length=500)
+    verdict: Literal["true", "false", "uncertain", "story"]
+    reason: str = Field(default="", max_length=500)
+
+
+class FactCheck(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    claims: list[Claim] = Field(default_factory=list, max_length=40)
+
+    @property
+    def problems(self) -> list[Claim]:
+        return [c for c in self.claims if c.verdict in ("false", "uncertain")]
+
+
+def fact_check(checker, script: Script) -> FactCheck:
+    """Independent model (NVIDIA analyst) checks every spoken/shown statement."""
+    p = prompts.load("fact_check_v1")
+    view = {"title": script.title, "hook": script.hook, "description": script.description,
+            "scenes": [{"narration": s.narration, "on_screen_text": s.on_screen_text} for s in script.scenes]}
+    out, _ = checker.structured([{"role": "user", "content": p.render(
+        language=script.language, script_json=prompts.untrusted(view, 6000))}], FactCheck, max_tokens=1500)
+    return out
 
 
 def _shingles(text: str, n: int = 4) -> set[tuple[str, ...]]:
@@ -45,10 +74,10 @@ def pick_format(s: Settings, key: str) -> str:
 
 
 def generate_script(s: Settings, text_client, candidate: Candidate, analysis: Analysis,
-                    fmt: str = "короткий ролик") -> tuple[Script, str]:
+                    fmt: str = "короткий ролик", checker=None) -> tuple[Script, str]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
-    p = prompts.load("script_v4")
+    p = prompts.load("script_v5")
     max_scene = min(s.max_scene_seconds, 20.0)
     min_scenes = max(1, int(-(-s.target_min_s // max_scene)))  # ceil
     analysis_view = analysis.model_dump(include={
@@ -74,7 +103,30 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
     issues = originality_issues(script, candidate, analysis)
     if issues:
         raise ScriptRejected("originality: " + "; ".join(issues))
+    if checker is not None and s.fact_check:
+        fc = fact_check(checker, script)
+        if fc.problems:
+            listed = "; ".join(f"«{c.text}» — {c.verdict}: {c.reason}" for c in fc.problems)
+            retry = messages + [{"role": "assistant", "content": script.model_dump_json()},
+                                {"role": "user", "content": "A fact-checker rejected these statements: " + listed
+                                 + ". Rewrite them so that nothing false or doubtful is stated as real-world fact"
+                                 " (tell it as a story instead). Return the full corrected JSON object."}]
+            script, _ = text_client.structured(retry, Script, max_tokens=s.nim_text_max_tokens)
+            errors = script.check_limits(s.target_min_s, s.target_max_s, max_scene)
+            if errors:
+                raise ScriptRejected("; ".join(errors))
+            fc = fact_check(checker, script)
+            if fc.problems:
+                raise ScriptRejected("fact-check: " + "; ".join(f"«{c.text}» ({c.verdict})" for c in fc.problems))
     return script, p.ref
+
+
+def compose_keyframe_prompt(script: Script) -> str:
+    """Opening image for i2v_chain: the subject in the story's single setting."""
+    return (f"{script.subject.strip().rstrip('.')}, {script.setting.strip().rstrip('.')}. "
+            f"{script.visual_style.strip().rstrip('.')}. Vertical 9:16 composition, the subject large and centered, "
+            "plain clothing without patches, badges or prints, no screens or displays, "
+            "clean image with no lettering, no signs, no captions, no logos and no watermark.")
 
 
 def compose_video_prompt(script: Script, scene) -> str:

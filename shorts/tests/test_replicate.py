@@ -145,3 +145,50 @@ def test_flatten_messages_keeps_text_parts_only():
                                 {"role": "user", "content": [{"type": "text", "text": "hi"},
                                                              {"type": "image_url", "image_url": {"url": "x"}}]}])
     assert "rules" in out and "hi" in out and "image_url" not in out and out.endswith("### ASSISTANT\n")
+
+
+def test_i2v_input_uses_start_image_and_model(tmp_path):
+    img = tmp_path / "start.jpg"
+    img.write_bytes(b"\xff\xd8\xff" + b"j" * 2000)
+    fake = FakeReplicate()
+    v = _video(fake, NIM_VIDEO_TIMEOUT_S="5")
+    req = VideoRequest(prompt="the robot jumps", num_frames=97, fps=16, resolution="720p", seed=1, image=img)
+    assert v.model_for(req) == "wan-video/wan-2.2-i2v-fast"
+    v.generate(req, tmp_path / "o.mp4")
+    inp = fake.creates[0]["input"]
+    assert inp["image"].startswith("data:image/jpeg;base64,") and "aspect_ratio" not in inp
+    t2v = VideoRequest(prompt="x", num_frames=81, fps=16, resolution="720p")
+    assert v.model_for(t2v) == "wan-video/wan-2.2-t2v-fast"
+
+
+def test_image_adapter_input_and_budget(tmp_path):
+    seen = {}
+
+    def h(req):
+        if req.method == "POST":
+            seen.update(json.loads(req.content)["input"])
+            return httpx.Response(201, json={"id": "img1", "status": "succeeded", "output": [OUT_URL]})
+        return httpx.Response(200, content=b"\xff\xd8" + b"i" * 3000)
+    s = _s(BUDGET_IMAGE_REQUESTS_PER_DAY="1")
+    rc = rep.ReplicateClient(s, client=httpx.Client(transport=httpx.MockTransport(h)), sleep=lambda _: None)
+    im = rep.ReplicateImage(s, BudgetGuard(_store(), s.budget), rc=rc)
+    assert im.generate("a robot", tmp_path / "k.jpg", seed=5) == "img1" and (tmp_path / "k.jpg").stat().st_size > 1000
+    assert seen["aspect_ratio"] == "9:16" and seen["output_format"] == "jpg" and seen["seed"] == 5
+    with pytest.raises(BudgetExceeded):
+        im.generate("again", tmp_path / "k2.jpg")
+
+
+def test_signed_third_party_outputs_get_no_token(tmp_path):
+    seen = []
+
+    def h(req):
+        seen.append((req.url.host, req.headers.get("Authorization")))
+        return httpx.Response(200, content=b"x" * 2000)
+    s = _s()
+    rc = rep.ReplicateClient(s, client=httpx.Client(transport=httpx.MockTransport(h)), sleep=lambda _: None)
+    rc.download("https://abc.r2.cloudflarestorage.com/out.jpg?X-Amz-Signature=1", tmp_path / "a", 10_000)
+    rc.download(OUT_URL, tmp_path / "b", 10_000)
+    assert seen[0] == ("abc.r2.cloudflarestorage.com", None)
+    assert seen[1][1].startswith("Bearer r8_")
+    with pytest.raises(ProviderError, match="unexpected output host"):
+        rc.download("https://evil.example/x", tmp_path / "c", 10_000)

@@ -92,14 +92,19 @@ class ReplicateClient:
 
     def download(self, url: str, dest: Path, max_bytes: int) -> Path:
         host = urlsplit(url).hostname or ""
-        suffix = self.s.replicate_output_host_suffix
-        if not (host == suffix or host.endswith("." + suffix)):
-            raise ProviderError(f"unexpected output host {host!r} (allowed: *.{suffix})")
+
+        def under(suffix: str) -> bool:
+            return host == suffix or host.endswith("." + suffix)
+        own = under(self.s.replicate_output_host_suffix)
+        signed = any(under(x) for x in self.s.replicate_signed_output_suffixes)
+        if not (own or signed):
+            raise ProviderError(f"unexpected output host {host!r}")
         check_public_https_url(url)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp, n = dest.with_suffix(dest.suffix + ".part"), 0
-        with self.http.stream("GET", url, headers={"Authorization": self._headers()["Authorization"]},
-                              timeout=httpx.Timeout(30, read=300)) as r:
+        # The API token goes only to Replicate's own delivery host, never to pre-signed third-party storage.
+        headers = {"Authorization": self._headers()["Authorization"]} if own else {}
+        with self.http.stream("GET", url, headers=headers, timeout=httpx.Timeout(30, read=300)) as r:
             if r.status_code != 200:
                 raise ProviderError(f"replicate output download HTTP {r.status_code}", status=r.status_code)
             with tmp.open("wb") as f:
@@ -128,11 +133,18 @@ class ReplicateVideo:
         self.s, self.budget, self.rc = s, budget, rc or ReplicateClient(s)
         self.limiter = limiter or ConcurrencyLimiter(s.nim_max_concurrency)
 
+    def model_for(self, req: VideoRequest) -> str:
+        return self.s.replicate_i2v_model if req.image is not None else self.s.replicate_video_model
+
     def build_input(self, req: VideoRequest) -> dict:
         lo, hi = self.s.replicate_video_min_frames, self.s.replicate_video_max_frames
-        inp = {"prompt": req.prompt[:4000], "aspect_ratio": "9:16", "resolution": req.resolution,
+        inp = {"prompt": req.prompt[:4000], "resolution": req.resolution,
                "num_frames": max(lo, min(hi, int(req.num_frames))), "frames_per_second": int(req.fps),
                "interpolate_output": True, "go_fast": True}
+        if req.image is not None:  # i2v: aspect ratio comes from the image
+            inp["image"] = data_url(req.image)
+        else:
+            inp["aspect_ratio"] = "9:16"
         if req.seed is not None:
             inp["seed"] = int(req.seed)
         inp.update(self.s.replicate_video_extra)
@@ -141,7 +153,7 @@ class ReplicateVideo:
     def generate(self, req: VideoRequest, out: Path, on_submitted=None) -> str | None:
         self.budget.reserve("video")
         with self.limiter:
-            pred = self.rc.create(self.s.replicate_video_model, self.build_input(req), billable=True)
+            pred = self.rc.create(self.model_for(req), self.build_input(req), billable=True)
         pid = pred.get("id")
         if not pid:
             raise OutcomeUnknown("replicate create returned no prediction id")
@@ -163,6 +175,40 @@ class ReplicateVideo:
             raise ProviderError(f"replicate {request_id}: output already deleted (kept 1 hour)")
         self.rc.download(_single_uri(pred["output"]), out, self.s.nim_max_response_bytes)
         return True
+
+
+def data_url(path: Path, max_bytes: int = 8 * 1024 * 1024) -> str:
+    """Replicate accepts files as data URLs; keep start frames small (JPEG)."""
+    import base64
+
+    raw = path.read_bytes()
+    if len(raw) > max_bytes:
+        raise ProviderError(f"start image too large: {len(raw)} bytes")
+    mime = {".png": "image/png", ".webp": "image/webp"}.get(path.suffix.lower(), "image/jpeg")
+    return f"data:{mime};base64," + base64.b64encode(raw).decode()
+
+
+class ReplicateImage:
+    """Text-to-image keyframes (black-forest-labs/flux-schnell: prompt, aspect_ratio, output_format, seed; uri[])."""
+
+    name = "replicate_flux_schnell"
+
+    def __init__(self, s: Settings, budget: BudgetGuard, rc: ReplicateClient | None = None):
+        self.s, self.budget, self.rc = s, budget, rc or ReplicateClient(s)
+
+    def generate(self, prompt: str, out: Path, seed: int | None = None) -> str | None:
+        self.budget.reserve("image")
+        inp = {"prompt": prompt[:2000], "aspect_ratio": "9:16", "output_format": "jpg", "output_quality": 92,
+               "num_outputs": 1}
+        if seed is not None:
+            inp["seed"] = int(seed)
+        pred = self.rc.create(self.s.replicate_image_model, inp, billable=False, wait=60)
+        pred = self.rc.wait(pred, 180)
+        if pred.get("status") not in TERMINAL:
+            raise ProviderError("replicate image timed out", retryable=True)
+        self.rc.check_terminal(pred)
+        self.rc.download(_single_uri(pred.get("output")), out, 20 * 1024**2)
+        return pred.get("id")
 
 
 def flatten_messages(messages: list[dict]) -> str:
