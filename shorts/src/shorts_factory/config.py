@@ -41,7 +41,8 @@ class Budget(BaseModel):
     """Daily/per-job limits. Generation is disabled until a positive budget is set explicitly."""
 
     text_requests_per_day: int = 40
-    vision_requests_per_day: int = 10
+    vision_requests_per_day: int = 60
+    image_requests_per_day: int = 30
     tts_requests_per_day: int = 40
     video_requests_per_day: int = 0
     video_requests_per_job: int = 6
@@ -95,7 +96,10 @@ class Settings(BaseModel):
     # Replicate (https://replicate.com/docs/reference/http)
     replicate_api_token: SecretStr | None = None
     replicate_api_base: str = "https://api.replicate.com/v1"
-    replicate_output_host_suffix: str = "replicate.delivery"
+    replicate_output_host_suffix: str = "replicate.delivery"  # outputs that need the API token
+    # Some models (e.g. flux-schnell, seen 2026-10-12) return pre-signed Cloudflare R2 URLs: allowed, but the
+    # API token is never sent there.
+    replicate_signed_output_suffixes: list[str] = Field(default_factory=lambda: ["r2.cloudflarestorage.com"])
     replicate_text_model: str = "qwen/qwen3-235b-a22b-instruct-2507"
     replicate_video_model: str = "wan-video/wan-2.2-t2v-fast"
     replicate_video_resolution: str = "720p"
@@ -103,6 +107,15 @@ class Settings(BaseModel):
     replicate_video_min_frames: int = 81   # schema: 81..121
     replicate_video_max_frames: int = 121
     replicate_video_extra: dict = Field(default_factory=dict)
+    # i2v_chain: one keyframe (text-to-image) -> scene 0 animated from it, scene k from the last frame of k-1;
+    # keeps the same subject in every scene. t2v: every scene generated independently from text.
+    video_mode: Literal["t2v", "i2v_chain"] = "i2v_chain"
+    replicate_image_model: str = "black-forest-labs/flux-schnell"
+    replicate_i2v_model: str = "wan-video/wan-2.2-i2v-fast"
+    max_keyframe_attempts: int = 3
+    # Quality gates using the NVIDIA models: lettering in generated images/clips, factual claims in the script
+    check_lettering: bool = True
+    fact_check: bool = True
     replicate_tts_model: str = "minimax/speech-02-turbo"
     replicate_tts_voice: str = "Russian_ReliableMan"
     replicate_poll_interval_s: float = 3.0
@@ -178,9 +191,10 @@ class Settings(BaseModel):
     content_language: str = "ru"
     target_audience: str = "широкая аудитория 13+, интересующаяся технологиями и необычными фактами; не детский контент"
     tts_provider: Literal["none", "mock", "replicate"] = "none"
+    # Story formats: a trend is a situation + emotion, so the new video retells one (fact lists lost the trend)
     content_formats: list[str] = Field(default_factory=lambda: [
-        "необычный факт с объяснением", "мини-история с неожиданным поворотом", "было/стало",
-        "три коротких факта", "вопрос и ответ"])
+        "неудача, паника и неожиданное решение", "превращение героя или предмета", "мини-история с поворотом в конце",
+        "соревнование или спор с неожиданным победителем", "маленький герой против большой проблемы"])
     trend_refresh_hours: int = 12  # reuse unused candidates fetched within this window instead of searching again
     music_file_key: str = ""  # storage key of a licensed track; its manifest must exist next to it
 

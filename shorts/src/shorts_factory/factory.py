@@ -52,11 +52,12 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
         d.trends = YouTubeSearchSource(s, budget, make_client(10, 30), tokens)
 
     if s.provider_mode == "mock":
-        from .providers.mock import MockChat, MockVideo, default_mock_responses
+        from .providers.mock import MockChat, MockImage, MockVideo, default_mock_responses
 
         chat = MockChat(default_mock_responses(s.content_language))
         d.text = d.vision = d.analyst = chat
         d.video = MockVideo(ff, *_gen_size(s), budget=budget)
+        d.image = MockImage(ff, *_gen_size(s), budget=budget)
     else:
         from .providers.nim_chat import NimTextClient, NimVisionClient
         from .providers.nim_video import NimVideoClient
@@ -74,6 +75,10 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
             from .providers.replicate import ReplicateVideo
 
             d.video = ReplicateVideo(s, budget, limiter=limiter) if s.replicate_api_token else None
+            if s.video_mode == "i2v_chain" and s.replicate_api_token:
+                from .providers.replicate import ReplicateImage
+
+                d.image = ReplicateImage(s, budget)
         else:
             d.video = NimVideoClient(s, budget, limiter=limiter) if s.nim_video_url else None
 

@@ -47,7 +47,7 @@ def test_dry_run_end_to_end(settings_env):
     an = d.store.get_stage(job.id, "analysis")["analysis"]
     assert an["mode"] == "metadata_only" and an["pacing"] is None and an["limitations"]
     sc = d.store.get_stage(job.id, "script")
-    assert sc["prompt"] == "script@v4" and sc["format"] in d.s.content_formats
+    assert sc["prompt"] == "script@v5" and sc["format"] in d.s.content_formats
     qc = d.store.get_stage(job.id, "validate")["qc"]
     assert qc["ok"], qc
     assert qc["width"] == 360 and qc["height"] == 640 and qc["has_audio"] is True  # mock TTS narration
@@ -116,7 +116,7 @@ def test_corrupt_scene_is_regenerated_once_then_review(settings_env):
     d = _deps(settings_env)
     d.video = MockVideo(d.ff, 192, 320, script=["corrupt", "ok", "ok", "ok"])
     assert pipeline.run_once(d)["state"] == "done_dry_run"
-    ops = d.store.ops_for_job(_job(d).id)
+    ops = [o for o in d.store.ops_for_job(_job(d).id) if o["kind"] == "video_gen"]
     assert [o["status"] for o in ops] == ["failed", "succeeded", "succeeded", "succeeded"]
     assert ops[0]["detail"].startswith("bad result")
 
@@ -307,3 +307,53 @@ def test_render_recovers_empty_narration_and_blocks_on_broken_clip(settings_env,
     shutil.rmtree(d2.s.work_dir, ignore_errors=True)
     job2 = pipeline.advance(d2, job2)
     assert job2.state == JobState.REVIEW_REQUIRED and "scenes [1]" in job2.reason
+
+
+def test_i2v_chain_keyframe_and_lettering_retry(settings_env):
+    from shorts_factory.qc_vision import TextCheck
+
+    d = _deps(settings_env)
+    assert d.s.video_mode == "i2v_chain" and d.image is not None
+    answers = [True, False, False, False, False]  # keyframe #1 has text -> regenerated; clips clean
+
+    class Vision:
+        def frames_content(self, frames):
+            return [{"type": "text", "text": "img"}]
+
+        def structured(self, messages, model_cls, *, max_tokens, context=None):
+            assert model_cls is TextCheck
+            return TextCheck(has_text=answers.pop(0), where="engraved code"), "v"
+    d.vision = Vision()
+    starts = []
+    real_generate = d.video.generate
+
+    def spy(req, out, on_submitted=None):
+        starts.append(req.image.name if req.image else None)
+        return real_generate(req, out, on_submitted)
+    d.video.generate = spy
+    assert pipeline.run_once(d)["state"] == "done_dry_run"
+    job = _job(d)
+    img_ops = [o for o in d.store.ops_for_job(job.id) if o["kind"] == "image_gen"]
+    assert [o["status"] for o in img_ops] == ["failed", "succeeded"] and "lettering" in img_ops[0]["detail"]
+    assert starts == ["keyframe.jpg", "start_01.jpg", "start_02.jpg"]  # each scene continues the previous
+    gen = d.store.get_stage(job.id, "generate")["scenes"]
+    assert [g["start"] for g in gen] == ["keyframe", "previous_clip", "previous_clip"]
+    assert d.artifacts.exists(f"jobs/{job.id}/keyframe.jpg")
+
+
+def test_lettering_in_clip_triggers_one_regeneration(settings_env):
+    from shorts_factory.qc_vision import TextCheck
+
+    d = _deps(settings_env)
+    answers = [False, True, False, False, False]  # keyframe ok, scene 0 first clip has text
+
+    class Vision:
+        def frames_content(self, frames):
+            return []
+
+        def structured(self, messages, model_cls, *, max_tokens, context=None):
+            return TextCheck(has_text=answers.pop(0)), "v"
+    d.vision = Vision()
+    assert pipeline.run_once(d)["state"] == "done_dry_run"
+    ops = [o for o in d.store.ops_for_job(_job(d).id) if o["kind"] == "video_gen"]
+    assert [o["status"] for o in ops][:2] == ["failed", "succeeded"] and "lettering" in ops[0]["detail"]

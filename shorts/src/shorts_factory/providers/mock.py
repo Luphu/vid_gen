@@ -40,6 +40,25 @@ class MockChat:
         return [{"type": "text", "text": f"[{len(urls)} images]"}]
 
 
+class MockImage:
+    """Solid-colour 9:16 JPEG keyframe via ffmpeg; ``script`` of "ok"/"error" per call."""
+
+    name = "mock_image"
+
+    def __init__(self, ff: FF, width: int, height: int, budget=None, script: list[str] | None = None):
+        self.ff, self.w, self.h, self.budget, self.script, self.calls = ff, width, height, budget, list(script or []), 0
+
+    def generate(self, prompt: str, out: Path, seed: int | None = None) -> str | None:
+        if self.budget is not None:
+            self.budget.reserve("image")
+        self.calls += 1
+        if (self.script.pop(0) if self.script else "ok") == "error":
+            raise ProviderError("mock image NSFW filter", status=422)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        self.ff.run(["-f", "lavfi", "-i", f"testsrc2=size={self.w}x{self.h}:rate=1", "-frames:v", "1", str(out)])
+        return f"mock-img-{self.calls}"
+
+
 class MockVideo:
     """Generates a synthetic test clip with ffmpeg (lavfi testsrc2), no network.
 
@@ -102,6 +121,8 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
         "MetaOut": {"topic": "Тест: короткие ИИ-ролики о необычных предметах",
                     "hook": "по названию: обещание неожиданного превращения", "confidence": "low",
                     "audience_interest_hypothesis": "гипотеза: интерес к визуальным трансформациям"},
+        "TextCheck": {"has_text": False, "where": None},
+        "FactCheck": {"claims": [{"text": "Однажды робот ожил", "verdict": "story", "reason": "fiction"}]},
         "PublicOut": {"topic": "A cartoon kitten learns colours by painting a fence",
                       "hook": "The kitten spills a bucket of paint in the first shot (from thumbnail)",
                       "plot_beats": [
@@ -126,6 +147,8 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
             "hook": "Что если тетрадь оживёт?",
             "subject": "a palm-sized origami robot folded from plain white paper, square head, two thin arms, "
                        "soft warm glow along its folds",
+            "setting": "a sunny wooden desk with pencils, a mug and an open blank notebook",
+            "trend_link": "сохранена ситуация «маленький герой исправляет поломку» с новым персонажем",
             "visual_style": "photorealistic macro footage, warm morning window light, shallow depth of field, "
                             "muted natural colours",
             "scenes": [

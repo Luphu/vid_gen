@@ -228,6 +228,10 @@ class Script(Strict):
     subject: str = Field(min_length=15, max_length=400)
     # One shared English visual style line (lighting, palette, lens, realism) for all scenes.
     visual_style: str = Field(min_length=10, max_length=250)
+    # English: where the story happens (the opening keyframe shows the subject here).
+    setting: str = Field(min_length=10, max_length=300)
+    # Which core situation/emotion of the reference trend this video keeps (with new characters and story).
+    trend_link: str = Field(min_length=10, max_length=400)
     scenes: list[Scene] = Field(min_length=1, max_length=10)
     narration: str = Field(default="", max_length=2000)
     title: str = Field(min_length=3, max_length=100)
@@ -235,7 +239,7 @@ class Script(Strict):
     tags: list[str] = Field(default_factory=list, max_length=20)
     disclosure: Disclosure
 
-    @field_validator("subject", "visual_style")
+    @field_validator("subject", "visual_style", "setting")
     @classmethod
     def _visual_fields_en(cls, v: str, info) -> str:
         return _english_only(v, info.field_name)  # type: ignore[return-value]

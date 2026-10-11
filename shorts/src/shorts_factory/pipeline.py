@@ -33,8 +33,16 @@ from .providers.nim_chat import StructuredOutputError
 from .providers.nim_video import VideoRequest
 from .providers.tts import TTS
 from .qc import check_final, check_scene
+from .qc_vision import frame_at, has_lettering
 from .render import RenderInputs, expected_audio, render
-from .scripting import ScriptRejected, compose_video_prompt, frames_for, generate_script, pick_format
+from .scripting import (
+    ScriptRejected,
+    compose_keyframe_prompt,
+    compose_video_prompt,
+    frames_for,
+    generate_script,
+    pick_format,
+)
 from .storage import ArtifactStore
 from .store import Job, Store
 from .trends import TrendSource
@@ -51,6 +59,10 @@ STAGE_ENTRY = {
 }
 
 
+class _NeedsReview(RuntimeError):
+    """Raised inside a stage helper; the stage converts it into review_required."""
+
+
 class Deferred(RuntimeError):
     """Stage cannot proceed now (budget, rate limit, processing); state unchanged, retry next run."""
 
@@ -65,7 +77,8 @@ class Deps:
     ff: FF
     text: Any = None
     vision: Any = None
-    analyst: Any = None  # NVIDIA text model that turns public signals into plot beats
+    analyst: Any = None  # NVIDIA text model: plot beats from public signals, fact-check of scripts
+    image: Any = None    # text-to-image for the i2v_chain keyframe
     video: Any = None
     tts: TTS | None = None
     trends: TrendSource | None = None
@@ -250,7 +263,7 @@ def stage_script(d: Deps, job: Job) -> Job:
         raise ConfigError("text provider not configured (REPLICATE_API_TOKEN or TEXT_PROVIDER=nvidia)")
     fmt = pick_format(d.s, job.id)
     try:
-        script, pref = generate_script(d.s, d.text, cand, analysis, fmt)
+        script, pref = generate_script(d.s, d.text, cand, analysis, fmt, checker=d.analyst)
     except (ScriptRejected, StructuredOutputError) as e:
         return _review(d, job, f"script rejected: {e}; retry with `shorts retry {job.id} --stage script`", None)
     except BudgetExceeded as e:
@@ -264,11 +277,52 @@ def _scene_ops(d: Deps, job: Job, idx: int) -> list[dict]:
     return [o for o in d.store.ops_for_job(job.id) if o["op_key"].startswith(f"{job.id}:gen:{idx}:")]
 
 
+def _keyframe(d: Deps, job: Job, script: Script, work: Path) -> Path:
+    """Opening image for i2v_chain (cheap): regenerated with a new seed if lettering is detected."""
+    key, local = f"jobs/{job.id}/keyframe.jpg", work / "keyframe.jpg"
+    if d.artifacts.exists(key):
+        return _fetch(d, key, local)
+    ops = [o for o in d.store.ops_for_job(job.id) if o["op_key"].startswith(f"{job.id}:img:")]
+    prompt = compose_keyframe_prompt(script)
+    for attempt in range(len(ops), d.s.max_keyframe_attempts):
+        op_key = f"{job.id}:img:0:{attempt}"
+        d.store.begin_op(op_key, job.id, "image_gen")
+        try:
+            rid = d.image.generate(prompt, local, seed=int(hashlib.sha256(op_key.encode()).hexdigest()[:8], 16))
+        except BudgetExceeded as e:
+            d.store.update_op(op_key, "failed", detail=f"not sent: {e}"[:500])
+            raise Deferred(str(e)) from e
+        except ProviderError as e:
+            d.store.update_op(op_key, "failed", detail=str(e)[:500])
+            if e.retryable:
+                raise Deferred(str(e)) from e
+            continue
+        if d.s.check_lettering and d.vision is not None:
+            text, where = has_lettering(d.vision, local)
+            if text:
+                d.store.update_op(op_key, "failed", request_id=rid, detail=f"lettering in keyframe: {where}")
+                log.warning("keyframe attempt %d has lettering (%s); retrying", attempt, where)
+                continue
+        d.artifacts.put_file(key, local, "image/jpeg")
+        d.store.update_op(op_key, "succeeded", request_id=rid, artifact_key=key, detail=prompt[:500])
+        return local
+    raise _NeedsReview(f"no usable keyframe after {d.s.max_keyframe_attempts} attempts")
+
+
 def stage_generate(d: Deps, job: Job) -> Job:
+    try:
+        return _stage_generate(d, job)
+    except _NeedsReview as e:
+        return _review(d, job, str(e), None)
+
+
+def _stage_generate(d: Deps, job: Job) -> Job:
     script = Script.model_validate(d.store.get_stage(job.id, "script")["script"])  # type: ignore[index]
     _check_disk(d)
     work = _work(d, job) / "scenes"
     work.mkdir(parents=True, exist_ok=True)
+    chain = d.s.video_mode == "i2v_chain" and d.image is not None
+    start: Path | None = _keyframe(d, job, script, work) if chain else None
     results = []
     for sc in script.scenes:
         key = f"jobs/{job.id}/scenes/{sc.index:02d}.mp4"
@@ -277,6 +331,9 @@ def stage_generate(d: Deps, job: Job) -> Job:
         last = ops[-1] if ops else None
         if last and last["status"] == "succeeded" and d.artifacts.exists(key):
             results.append({"index": sc.index, "key": key, "request_id": last["request_id"]})
+            if chain:  # next scene continues from this clip's last frame
+                start = frame_at(d.ff, _fetch(d, key, local), work / f"start_{sc.index + 1:02d}.jpg", last=True,
+                                 width=None)
             continue
         if last and last["status"] in ("pending", "unknown", "submitted"):
             recovered = False
@@ -289,6 +346,8 @@ def stage_generate(d: Deps, job: Job) -> Job:
                 d.artifacts.put_file(key, local, "video/mp4")
                 d.store.update_op(last["op_key"], "succeeded", artifact_key=key, detail="recovered by polling")
                 results.append({"index": sc.index, "key": key, "request_id": last["request_id"]})
+                if chain:
+                    start = frame_at(d.ff, local, work / f"start_{sc.index + 1:02d}.jpg", last=True, width=None)
                 continue
             if last["status"] == "pending":
                 d.store.update_op(last["op_key"], "unknown", detail="process stopped after op was recorded")
@@ -313,7 +372,7 @@ def stage_generate(d: Deps, job: Job) -> Job:
         req = VideoRequest(prompt=compose_video_prompt(script, sc), negative_prompt=sc.negative_prompt,
                            num_frames=frames_for(sc.duration_s, d.s.gen_fps, d.s.gen_min_frames,
                                                  d.s.gen_max_frames),
-                           fps=d.s.gen_fps, resolution=d.s.gen_resolution,
+                           fps=d.s.gen_fps, resolution=d.s.gen_resolution, image=start,
                            seed=int(hashlib.sha256(op_key.encode()).hexdigest()[:8], 16) % 2**31)
         try:
             if d.video is None:
@@ -341,10 +400,20 @@ def stage_generate(d: Deps, job: Job) -> Job:
         if not qc.ok:
             d.store.update_op(op_key, "failed", request_id=rid, detail="bad result: " + "; ".join(qc.failures))
             log.warning("scene %d result failed QC: %s", sc.index, qc.failures)
-            return stage_generate(d, d.store.get_job(job.id) or job)  # next attempt (bounded above)
+            return _stage_generate(d, d.store.get_job(job.id) or job)  # next attempt (bounded above)
+        if d.s.check_lettering and d.vision is not None:
+            mid = frame_at(d.ff, local, work / f"check_{sc.index:02d}.jpg", at_s=(qc.duration_s or sc.duration_s) / 2)
+            text, where = has_lettering(d.vision, mid)
+            if text:
+                d.store.update_op(op_key, "failed", request_id=rid, detail=f"bad result: lettering: {where}"[:500])
+                log.warning("scene %d has generated lettering (%s); next attempt", sc.index, where)
+                return _stage_generate(d, d.store.get_job(job.id) or job)
         d.artifacts.put_file(key, local, "video/mp4")
         d.store.update_op(op_key, "succeeded", request_id=rid, artifact_key=key)
-        results.append({"index": sc.index, "key": key, "request_id": rid, "prompt": req.prompt})
+        results.append({"index": sc.index, "key": key, "request_id": rid, "prompt": req.prompt,
+                        "start": "keyframe" if chain and sc.index == 0 else ("previous_clip" if chain else None)})
+        if chain:
+            start = frame_at(d.ff, local, work / f"start_{sc.index + 1:02d}.jpg", last=True, width=None)
 
     narration = []
     for sc in script.scenes:

@@ -177,3 +177,48 @@ def test_public_signals_cannot_claim_editing_or_frames():
         Analysis(**dict(base, plot_beats=[{"order": 0, "what_happens": "x", "evidence": ["frames"]}]))
     with pytest.raises(ValidationError):
         Analysis(**dict(base, plot_beats=[{"order": 0, "what_happens": "x", "evidence": []}]))
+
+
+class _Seq:
+    """Fake structured client returning prepared objects in order."""
+
+    def __init__(self, *outs):
+        self.outs, self.calls = list(outs), []
+
+    def structured(self, messages, model_cls, *, max_tokens, context=None):
+        self.calls.append(messages)
+        return model_cls.model_validate(self.outs.pop(0)), "r"
+
+
+def _fc(*verdicts):
+    return {"claims": [{"text": f"c{i}", "verdict": v, "reason": "r"} for i, v in enumerate(verdicts)]}
+
+
+def test_fact_check_repairs_then_rejects():
+    from datetime import UTC, datetime
+
+    from shorts_factory.config import load_settings
+    from shorts_factory.models import Candidate
+    from shorts_factory.scripting import ScriptRejected, generate_script
+
+    s = load_settings({"CONTENT_LANGUAGE": "ru"})
+    cand = Candidate(video_id="abcdefghijk", title="Котик красит забор", channel_id="UCx",
+                     published_at=datetime.now(UTC), fetched_at=datetime.now(UTC))
+    an = Analysis(mode="metadata_only", video_id="abcdefghijk", topic="t", sources=["api"])
+    text = _Seq(SCRIPT, SCRIPT)
+    checker = _Seq(_fc("false", "story"), _fc("story", "true"))
+    script, _ = generate_script(s, text, cand, an, "x", checker=checker)
+    assert len(text.calls) == 2 and "fact-checker rejected" in text.calls[1][-1]["content"]
+    assert text.calls[1][-2]["role"] == "assistant"
+    with pytest.raises(ScriptRejected, match="fact-check"):
+        generate_script(s, _Seq(SCRIPT, SCRIPT), cand, an, "x", checker=_Seq(_fc("uncertain"), _fc("false")))
+    no_check = load_settings({"CONTENT_LANGUAGE": "ru", "FACT_CHECK": "false"})
+    generate_script(no_check, _Seq(SCRIPT), cand, an, "x", checker=_Seq())
+
+
+def test_keyframe_prompt_has_subject_setting_style():
+    from shorts_factory.scripting import compose_keyframe_prompt
+
+    s = Script.model_validate(SCRIPT)
+    p = compose_keyframe_prompt(s)
+    assert s.subject.rstrip(".") in p and s.setting in p and "no lettering" in p and "9:16" in p

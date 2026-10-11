@@ -36,6 +36,7 @@ class VideoRequest:
     resolution: str
     negative_prompt: str | None = None
     seed: int | None = None
+    image: Path | None = None  # start frame for image-to-video (i2v_chain)
 
 
 class VideoGenerator(Protocol):
