@@ -146,6 +146,12 @@ class Store:
             ).fetchall()
         return [json.loads(r[0]) for r in rows]
 
+    def used_channels(self) -> set[str]:
+        """Channels of already used references (within API-data retention) — vary the source."""
+        with self.tx() as c:
+            rows = c.execute("SELECT data FROM candidates WHERE used_by_job IS NOT NULL").fetchall()
+        return {json.loads(r[0]).get("channel_id") for r in rows} - {None}
+
     def mark_candidate_used(self, video_id: str, job_id: str) -> None:
         with self.tx() as c:
             c.execute("UPDATE candidates SET used_by_job = ? WHERE video_id = ?", (job_id, video_id))

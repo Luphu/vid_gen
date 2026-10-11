@@ -48,11 +48,13 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
                     fmt: str = "короткий ролик") -> tuple[Script, str]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
-    p = prompts.load("script_v3")
+    p = prompts.load("script_v4")
     max_scene = min(s.max_scene_seconds, 20.0)
     min_scenes = max(1, int(-(-s.target_min_s // max_scene)))  # ceil
-    analysis_view = analysis.model_dump(include={"mode", "topic", "hook", "structure", "pacing",
-                                                 "audience_interest_hypothesis", "limitations"})
+    analysis_view = analysis.model_dump(include={
+        "mode", "topic", "hook", "structure", "pacing", "plot_beats", "characters", "setting",
+        "visual_description", "audience_interest_hypothesis", "unknowns", "limitations"})
+    analysis_view["reference_made_for_kids"] = candidate.made_for_kids
     msg = p.render(language=s.content_language, audience=s.target_audience, min_s=s.target_min_s,
                    max_s=s.target_max_s, min_scenes=min_scenes, max_scenes=min(10, min_scenes + 3),
                    max_scene_s=round(max_scene, 2), region="center", made_for_kids="false", format=fmt,

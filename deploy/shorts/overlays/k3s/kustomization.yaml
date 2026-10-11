@@ -10,11 +10,22 @@ configMapGenerator:
   - name: shorts-config
     behavior: merge
     literals:
-      - TREND_KEYWORDS=ai generated,ai video,sora,veo
-      - TREND_REGION=US
-      - TREND_LANGUAGE=en
-      - TREND_WINDOW_HOURS=72
-      - TREND_MAX_RESULTS=25
+      # Children's trends: top 30 by views among Shorts declared made-for-kids (status.madeForKids)
+      - TREND_MODE=kids
+      - TREND_REQUIRE_MADE_FOR_KIDS=true
+      - SELECT_REQUIRE_AI=false
+      - TREND_TOP_N=30
+      - TREND_KEYWORDS=мультик для детей #shorts,мультфильм #shorts,песенка для детей #shorts,сказка для детей #shorts,cartoon for kids #shorts
+      - TREND_REGION=RU
+      - TREND_LANGUAGE=ru
+      - TREND_WINDOW_HOURS=168
+      - TREND_MAX_RESULTS=200
+      - TREND_MAX_PAGES=1
+      # Analysis: NVIDIA trial (evaluation terms acknowledged by the owner, 2026-10-12)
+      - NIM_VISION_MODEL=meta/llama-3.2-11b-vision-instruct
+      # Fast-paced edit
+      - EDIT_MAX_SHOT_S=2.0
+      - EDIT_FIRST_SHOT_S=1.2
       - CONTENT_LANGUAGE=ru
       # Replicate models (commercial use per model page, checked 2026-10-11)
       - REPLICATE_TEXT_MODEL=qwen/qwen3-235b-a22b-instruct-2507

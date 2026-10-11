@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import prompts
 from .ff import FF, duration_of, stream
 from .media import ReferenceMedia
-from .models import AIClassification, Analysis, Candidate, Evidence, SceneObservation
+from .models import AIClassification, Analysis, Candidate, Evidence, PlotBeat, SceneObservation
 from .trends.classify import merge_ai
 
 log = logging.getLogger(__name__)
@@ -41,6 +41,60 @@ class MediaOut(BaseModel):
     visual_ai_cues: list[str] = Field(default_factory=list, max_length=10)
     visual_ai_likelihood: float | None = Field(default=None, ge=0, le=1)
     confidence: Literal["low", "medium", "high"] = "low"
+
+
+class PublicOut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    topic: str = Field(min_length=3, max_length=300)
+    hook: str | None = Field(default=None, max_length=400)
+    plot_beats: list[PlotBeat] = Field(default_factory=list, max_length=15)
+    characters: list[str] = Field(default_factory=list, max_length=12)
+    setting: str | None = Field(default=None, max_length=500)
+    visual_description: str = Field(min_length=20, max_length=2500)
+    on_screen_text: list[str] = Field(default_factory=list, max_length=10)
+    audience_interest_hypothesis: str | None = Field(default=None, max_length=600)
+    unknowns: list[str] = Field(default_factory=list, max_length=15)
+    confidence: Literal["low", "medium"] = "low"
+
+
+THUMBNAIL_PROMPT = (
+    "This is the thumbnail of a popular short video for children. Describe it exhaustively in English: every "
+    "character (species or age, colours, clothing, facial expression, pose, what they hold or do), objects, setting, "
+    "camera angle, art style (3D cartoon, 2D, live action, claymation...), colour palette, and any visible text "
+    "(quote it). Do not guess the story; describe only what is visible.")
+
+
+def analyze_public_signals(c: Candidate, vision_client, analyst_client,
+                           channel_titles: list[str]) -> tuple[Analysis, str]:
+    """Best legal reconstruction without the video file, in two NVIDIA steps:
+    1) the vision model describes the thumbnail (free text, what it does best);
+    2) the analyst text model turns thumbnail description + metadata + channel series pattern into plot beats."""
+    p = prompts.load("analysis_public_v2")
+    visual, _ = vision_client.chat([{"role": "user", "content": [
+        *vision_client.image_urls_content([c.thumbnail_url]), {"type": "text", "text": THUMBNAIL_PROMPT}]}],
+        max_tokens=700, temperature=0.2)
+    meta = _metadata(c) | {"topics": c.topic_categories, "made_for_kids": c.made_for_kids,
+                           "thumbnail_description": visual.strip()[:4000],
+                           "channel_recent_titles": channel_titles[:15]}
+    out, _rid = analyst_client.structured([{"role": "user", "content": p.render(
+        metadata_json=prompts.untrusted(meta, 10000))}], PublicOut, max_tokens=2500)
+    beats = sorted(out.plot_beats, key=lambda b: b.order)
+    a = Analysis(
+        mode="public_signals", video_id=c.video_id, topic=out.topic, hook=out.hook,
+        plot_beats=[b.model_copy(update={"order": i}) for i, b in enumerate(beats)],
+        characters=out.characters, setting=out.setting, visual_description=out.visual_description,
+        on_screen_text=out.on_screen_text, audience_interest_hypothesis=out.audience_interest_hypothesis,
+        unknowns=out.unknowns, confidence=out.confidence,
+        sources=[f"youtube_data_api:videos.list fetched_at={c.fetched_at.isoformat()}",
+                 f"thumbnail:{c.thumbnail_url}", f"vision_model:{getattr(vision_client, 'model', '?')}",
+                 f"analyst_model:{getattr(analyst_client, 'model', '?')}",
+                 f"channel_pattern:{len(channel_titles)} recent titles"],
+        limitations=["video, audio, editing and dialogue were not available (YouTube API gives no media)",
+                     "plot beats are reconstructed from metadata and one thumbnail; see per-beat evidence",
+                     "comments are disabled on made-for-kids videos"],
+        ai=c.ai,
+    )
+    return a, p.ref
 
 
 def _metadata(c: Candidate) -> dict:

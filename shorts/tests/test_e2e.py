@@ -46,7 +46,7 @@ def test_dry_run_end_to_end(settings_env):
     an = d.store.get_stage(job.id, "analysis")["analysis"]
     assert an["mode"] == "metadata_only" and an["pacing"] is None and an["limitations"]
     sc = d.store.get_stage(job.id, "script")
-    assert sc["prompt"] == "script@v3" and sc["format"] in d.s.content_formats
+    assert sc["prompt"] == "script@v4" and sc["format"] in d.s.content_formats
     qc = d.store.get_stage(job.id, "validate")["qc"]
     assert qc["ok"], qc
     assert qc["width"] == 360 and qc["height"] == 640 and qc["has_audio"] is True  # mock TTS narration
@@ -258,3 +258,21 @@ def test_failed_job_does_not_block_a_new_one_same_day(settings_env):
     pipeline.reject(d.store, _job(d).id, "bad prompt")
     # the rejected candidate is used; the fixture has no other AI candidate -> no_candidate, not a key clash
     assert pipeline.run_once(d)["status"] == "no_candidate"
+
+
+def test_kids_trend_public_signals_dynamic_edit(settings_env):
+    from .conftest import EXAMPLES
+
+    d = _deps(settings_env, TREND_MODE="kids", SELECT_REQUIRE_AI="false", TREND_REQUIRE_MADE_FOR_KIDS="true",
+              TREND_FIXTURE_FILE=str(EXAMPLES / "kids_trends_fixture.json"))
+    res = pipeline.run_once(d)
+    assert res["state"] == "done_dry_run", res
+    job = _job(d)
+    assert job.video_id == "kidsBBBB002"
+    a = d.store.get_stage(job.id, "analysis")["analysis"]
+    assert a["mode"] == "public_signals" and a["plot_beats"] and a["pacing"] is None
+    assert any(s.startswith("thumbnail:https://i.ytimg.com/") for s in a["sources"])
+    edit = d.store.get_stage(job.id, "render")["edit"]
+    assert edit["shots"] >= 9 and edit["avg_shot_s"] <= 2.0 and edit["first_shot_s"] == 1.2
+    qc = d.store.get_stage(job.id, "validate")["qc"]
+    assert any(c["name"] == "pacing" and c["ok"] for c in qc["checks"])

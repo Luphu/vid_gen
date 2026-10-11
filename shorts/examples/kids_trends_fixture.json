@@ -1,0 +1,71 @@
+{
+  "_comment": "Synthetic fixture for TREND_MODE=kids. Not real YouTube data.",
+  "items": [
+    {
+      "video_id": "kidsAAAA001",
+      "title": "Котик рисует радугу на заборе #shorts #мультик",
+      "description": "Смотри до конца!",
+      "channel_id": "UCkidschannel0000000001",
+      "channel_title": "Fixture",
+      "published_at": "2026-10-10T08:00:00Z",
+      "duration_s": 25,
+      "tags": [
+        "мультик"
+      ],
+      "view_count": 900000,
+      "like_count": null,
+      "comment_count": null,
+      "default_language": "ru",
+      "contains_synthetic_media": null,
+      "made_for_kids": true,
+      "thumbnail_url": "https://i.ytimg.com/vi/kidsAAAA001/hqdefault.jpg",
+      "topic_categories": [
+        "Entertainment"
+      ]
+    },
+    {
+      "video_id": "kidsBBBB002",
+      "title": "Пингвин потерял шарфик #shorts",
+      "description": "Смотри до конца!",
+      "channel_id": "UCkidschannel0000000002",
+      "channel_title": "Fixture",
+      "published_at": "2026-10-10T08:00:00Z",
+      "duration_s": 25,
+      "tags": [
+        "мультик"
+      ],
+      "view_count": 1200000,
+      "like_count": null,
+      "comment_count": null,
+      "default_language": "ru",
+      "contains_synthetic_media": null,
+      "made_for_kids": true,
+      "thumbnail_url": "https://i.ytimg.com/vi/kidsBBBB002/hqdefault.jpg",
+      "topic_categories": [
+        "Entertainment"
+      ]
+    },
+    {
+      "video_id": "adultCC0003",
+      "title": "Cooking hack for adults #shorts",
+      "description": "Смотри до конца!",
+      "channel_id": "UCadultchannel000000003",
+      "channel_title": "Fixture",
+      "published_at": "2026-10-10T08:00:00Z",
+      "duration_s": 25,
+      "tags": [
+        "мультик"
+      ],
+      "view_count": 5000000,
+      "like_count": null,
+      "comment_count": null,
+      "default_language": "ru",
+      "contains_synthetic_media": null,
+      "made_for_kids": false,
+      "thumbnail_url": "https://i.ytimg.com/vi/adultCC0003/hqdefault.jpg",
+      "topic_categories": [
+        "Entertainment"
+      ]
+    }
+  ]
+}

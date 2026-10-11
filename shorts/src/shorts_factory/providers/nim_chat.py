@@ -94,6 +94,11 @@ class NimVisionClient(_ChatBase):
     def __init__(self, s: Settings, budget: BudgetGuard, **kw):
         super().__init__(s, budget, s.nim_vision_url, s.nim_vision_model, **kw)
 
+    def image_urls_content(self, urls: list[str | None]) -> list[dict]:
+        """Public HTTPS images (YouTube thumbnails from the API) fetched by the provider."""
+        return [{"type": "image_url", "image_url": {"url": u}} for u in urls
+                if u and u.startswith("https://i.ytimg.com/")]
+
     def frames_content(self, frames: list[Path]) -> list[dict]:
         urls = ["data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode() for p in frames]
         if self.s.nim_vision_input == "video_frames":

@@ -75,7 +75,9 @@ class Settings(BaseModel):
     nim_text_max_tokens: int = 2048
     nim_text_disable_thinking: bool = True  # chat_template_kwargs.enable_thinking=false (verified on nemotron-3)
     nim_vision_url: str = NVIDIA_CHAT_URL
-    nim_vision_model: str = "nvidia/cosmos-reason2-8b"
+    # verified 2026-10-12 with this account: llama-3.2-11b-vision answers in ~7 s; cosmos-reason2-8b,
+    # gemma-3-12b-it and vila return 404 (not enabled), llama-3.2-90b / gemma-4 / nemotron omni time out
+    nim_vision_model: str = "meta/llama-3.2-11b-vision-instruct"
     nim_vision_input: Literal["image_url", "video_frames"] = "image_url"
     nim_video_url: str = ""  # no default on purpose: hosted cosmos3-nano URL is not documented
     nim_video_async_status_url: str = ""  # e.g. https://.../status/{request_id}; empty = no polling
@@ -109,6 +111,14 @@ class Settings(BaseModel):
 
     # Trend discovery
     trend_source: Literal["youtube", "fixture"] = "youtube"
+    # kids: popular Shorts declared made-for-kids (status.madeForKids), top N by views; ai: AI-content search
+    trend_mode: Literal["ai", "kids"] = "ai"
+    trend_top_n: int = 30
+    trend_require_made_for_kids: bool = False
+    select_require_ai: bool = True
+    # Keep candidates whose audio language (metadata) or title script matches; empty = no filter.
+    # regionCode/relevanceLanguage only bias search ranking, they do not filter.
+    trend_languages: list[str] = Field(default_factory=list)
     trend_fixture_file: str = ""
     youtube_api_key: SecretStr | None = None
     trend_keywords: list[str] = Field(default_factory=lambda: ["ai generated", "ai video"])
@@ -156,6 +166,11 @@ class Settings(BaseModel):
     max_output_bytes: int = 256 * 1024**2
     black_scene_max_ratio: float = 0.9
     burn_subtitles: bool = True
+    # Dynamic editing: every generated clip is cut into short shots with alternating punch-ins
+    edit_max_shot_s: float = 2.0
+    edit_first_shot_s: float = 1.2
+    edit_punch_in: float = 1.15
+    edit_max_avg_shot_s: float = 2.5
     fit_mode: Literal["pad", "crop"] = "pad"
     font_file: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
