@@ -15,7 +15,9 @@ configMapGenerator:
       - TREND_REQUIRE_MADE_FOR_KIDS=true
       - SELECT_REQUIRE_AI=false
       - TREND_TOP_N=30
-      - TREND_KEYWORDS=мультик для детей #shorts,мультфильм #shorts,песенка для детей #shorts,сказка для детей #shorts,cartoon for kids #shorts
+      # quoted: in YAML " #" starts a comment and silently cut the list to the first query
+      - "TREND_KEYWORDS=мультик для детей #shorts,мультфильм #shorts,песенка для детей #shorts,сказка для детей #shorts,cartoon for kids #shorts"
+      - TREND_LANGUAGES=ru,en
       - TREND_REGION=RU
       - TREND_LANGUAGE=ru
       - TREND_WINDOW_HOURS=168
@@ -43,6 +45,7 @@ configMapGenerator:
       # 5 videos/day: 5 scheduled runs, one video each; ~4 scenes/video + retries
       - DAILY_VIDEO_LIMIT=5
       - PUBLISH_DAILY_LIMIT=5
+      - BUDGET_YT_UPLOADS_PER_DAY=5
       - BUDGET_VIDEO_REQUESTS_PER_DAY=30
       - BUDGET_TEXT_REQUESTS_PER_DAY=60
       - BUDGET_TTS_REQUESTS_PER_DAY=40

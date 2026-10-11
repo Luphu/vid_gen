@@ -40,11 +40,20 @@ class LocalStore:
         return p
 
     def put_file(self, key: str, path: Path, content_type: str = "application/octet-stream") -> None:
+        """Durable write: data and rename are fsynced, so a power cut cannot leave an empty file
+        behind a successful 'stored' record (observed on the SD-card nodes on 2026-10-12)."""
         dst = self._p(key)
         dst.parent.mkdir(parents=True, exist_ok=True)
         tmp = dst.with_suffix(dst.suffix + ".part")
         shutil.copyfile(path, tmp)
+        with open(tmp, "rb") as f:
+            os.fsync(f.fileno())
         os.replace(tmp, dst)
+        dfd = os.open(dst.parent, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
 
     def get_file(self, key: str, dest: Path) -> Path:
         dest.parent.mkdir(parents=True, exist_ok=True)
