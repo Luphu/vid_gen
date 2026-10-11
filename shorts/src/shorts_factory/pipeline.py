@@ -277,6 +277,12 @@ def _scene_ops(d: Deps, job: Job, idx: int) -> list[dict]:
     return [o for o in d.store.ops_for_job(job.id) if o["op_key"].startswith(f"{job.id}:gen:{idx}:")]
 
 
+def _stored_script(d: Deps, job: Job) -> Script:
+    """Scripts already accepted are read without generation-time rules added later (old jobs must resume)."""
+    return Script.model_validate(d.store.get_stage(job.id, "script")["script"],  # type: ignore[index]
+                                 context={"stored": True})
+
+
 def _keyframe(d: Deps, job: Job, script: Script, work: Path) -> Path:
     """Opening image for i2v_chain (cheap): regenerated with a new seed if lettering is detected."""
     key, local = f"jobs/{job.id}/keyframe.jpg", work / "keyframe.jpg"
@@ -317,11 +323,12 @@ def stage_generate(d: Deps, job: Job) -> Job:
 
 
 def _stage_generate(d: Deps, job: Job) -> Job:
-    script = Script.model_validate(d.store.get_stage(job.id, "script")["script"])  # type: ignore[index]
+    script = _stored_script(d, job)
     _check_disk(d)
     work = _work(d, job) / "scenes"
     work.mkdir(parents=True, exist_ok=True)
     chain = d.s.video_mode == "i2v_chain" and d.image is not None
+    warnings: list[str] = []
     start: Path | None = _keyframe(d, job, script, work) if chain else None
     results = []
     for sc in script.scenes:
@@ -404,10 +411,14 @@ def _stage_generate(d: Deps, job: Job) -> Job:
         if d.s.check_lettering and d.vision is not None:
             mid = frame_at(d.ff, local, work / f"check_{sc.index:02d}.jpg", at_s=(qc.duration_s or sc.duration_s) / 2)
             text, where = has_lettering(d.vision, mid)
-            if text:
+            attempts_left = MAX_ATTEMPTS_PER_SCENE - (len(ops) + 1 - superseded)
+            if text and attempts_left > 0:
                 d.store.update_op(op_key, "failed", request_id=rid, detail=f"bad result: lettering: {where}"[:500])
                 log.warning("scene %d has generated lettering (%s); next attempt", sc.index, where)
                 return _stage_generate(d, d.store.get_job(job.id) or job)
+            if text:  # last attempt: keep it, flag it for the human reviewer instead of paying again
+                warnings.append(f"scene {sc.index}: possible lettering {where}")
+                log.warning("scene %d: lettering suspected on last attempt; accepted with warning", sc.index)
         d.artifacts.put_file(key, local, "video/mp4")
         d.store.update_op(op_key, "succeeded", request_id=rid, artifact_key=key)
         results.append({"index": sc.index, "key": key, "request_id": rid, "prompt": req.prompt,
@@ -426,7 +437,7 @@ def _stage_generate(d: Deps, job: Job) -> Job:
         narration.append(nkey)
     return d.store.transition(job, JobState.GENERATED, stage="generate", payload={
         "scenes": results, "narration": narration, "tts": d.tts.name if d.tts else "none",
-        "generator": getattr(d.video, "name", "?")})
+        "generator": getattr(d.video, "name", "?"), "warnings": warnings})
 
 
 def _fetch(d: Deps, key: str, dest: Path) -> Path:
@@ -457,7 +468,7 @@ def _music(d: Deps, work: Path) -> Path | None:
 
 def stage_render(d: Deps, job: Job) -> Job:
     _check_disk(d)
-    script = Script.model_validate(d.store.get_stage(job.id, "script")["script"])  # type: ignore[index]
+    script = _stored_script(d, job)
     gen = d.store.get_stage(job.id, "generate") or {}
     work = _work(d, job)
     scenes = [(sc, _fetch(d, r["key"], work / "scenes" / f"{sc.index:02d}.mp4"))
@@ -542,7 +553,7 @@ def build_upload_request(s: Settings, store: Store, script: Script, now: datetim
 def stage_upload(d: Deps, job: Job) -> Job:
     from .youtube.upload import UploadUnknown
 
-    script = Script.model_validate(d.store.get_stage(job.id, "script")["script"])  # type: ignore[index]
+    script = _stored_script(d, job)
     r = d.store.get_stage(job.id, "render") or {}
     if job.dry_run:
         try:
@@ -593,7 +604,7 @@ def reconcile_generation(d: Deps, job: Job) -> Job:
     """
     if job.state != JobState.GENERATION_UNKNOWN:
         return job
-    script = Script.model_validate(d.store.get_stage(job.id, "script")["script"])  # type: ignore[index]
+    script = _stored_script(d, job)
     durations = {sc.index: sc.duration_s for sc in script.scenes}
     work = _work(d, job) / "scenes"
     work.mkdir(parents=True, exist_ok=True)
@@ -683,8 +694,12 @@ def resolve_op(store: Store, artifacts: ArtifactStore, op_key: str, note: str,
     is the operator's decision). With ``artifact``: store the recovered file and mark succeeded.
     """
     op = store.get_op(op_key)
-    if op is None or op["status"] not in ("unknown", "pending", "submitted"):
+    lettering_reject = (op is not None and op["status"] == "failed"
+                        and (op["detail"] or "").startswith("bad result: lettering"))
+    if op is None or (op["status"] not in ("unknown", "pending", "submitted") and not lettering_reject):
         raise ValueError("operation not found or not unresolved")
+    if lettering_reject and artifact is None:
+        raise ValueError("a clip rejected for lettering can only be accepted with --artifact (the reviewed file)")
     if artifact is None:
         store.update_op(op_key, "failed", detail=f"resolved by operator (regenerate allowed): {note}")
         return

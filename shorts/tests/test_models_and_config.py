@@ -222,3 +222,31 @@ def test_keyframe_prompt_has_subject_setting_style():
     s = Script.model_validate(SCRIPT)
     p = compose_keyframe_prompt(s)
     assert s.subject.rstrip(".") in p and s.setting in p and "no lettering" in p and "9:16" in p
+
+
+@pytest.mark.parametrize("field,bad", [("setting", "a lab with holographic displays and drones"),
+                                       ("setting", "a classroom with posters on the walls"),
+                                       ("subject", "a boy in a jacket with a name tag")])
+def test_text_prone_props_rejected(field, bad):
+    data = copy.deepcopy(SCRIPT)
+    data[field] = bad
+    with pytest.raises(ValidationError, match="fake lettering"):
+        Script.model_validate(data)
+
+
+def test_lettering_needs_transcription():
+    from shorts_factory.qc_vision import TextCheck
+
+    assert not TextCheck(has_text=True, where="on the blue circle").confirmed
+    assert not TextCheck(has_text=True, text_seen="~~", where="x").confirmed
+    assert TextCheck(has_text=True, text_seen="NAATS", where="vest").confirmed
+    assert TextCheck(has_text=True, text_seen="Ок 1", where="x").confirmed
+    assert not TextCheck(has_text=False, text_seen="ABC").confirmed
+
+
+def test_stored_scripts_load_without_newer_generation_rules():
+    data = copy.deepcopy(SCRIPT)
+    data["setting"] = "a lab with holographic displays"
+    with pytest.raises(ValidationError):
+        Script.model_validate(data)
+    assert Script.model_validate(data, context={"stored": True}).setting.startswith("a lab")
