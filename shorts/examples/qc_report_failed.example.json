@@ -1,0 +1,60 @@
+{
+  "qc": {
+    "ok": false,
+    "checks": [
+      {
+        "name": "size",
+        "ok": true,
+        "detail": "5242880 bytes (max 268435456)"
+      },
+      {
+        "name": "duration",
+        "ok": true,
+        "detail": "18.00s, allowed [15.0, 30.0]"
+      },
+      {
+        "name": "resolution",
+        "ok": true,
+        "detail": "720x1280, expected 720x1280"
+      },
+      {
+        "name": "aspect_9_16",
+        "ok": true,
+        "detail": "720:1280"
+      },
+      {
+        "name": "video_codec",
+        "ok": true,
+        "detail": "h264"
+      },
+      {
+        "name": "pixel_format",
+        "ok": true,
+        "detail": "yuv420p"
+      },
+      {
+        "name": "audio",
+        "ok": true,
+        "detail": "no narration/music configured; video is silent"
+      },
+      {
+        "name": "decode",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "black_frames",
+        "ok": false,
+        "detail": "black 62% of video"
+      }
+    ],
+    "file_key": "jobs/0f3c9a1b2d4e5f60/final.mp4",
+    "duration_s": 18.0,
+    "width": 720,
+    "height": 1280,
+    "has_audio": false
+  },
+  "failures": [
+    "black_frames: black 62% of video"
+  ]
+}

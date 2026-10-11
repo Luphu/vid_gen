@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# Image pinned by digest. Updated by the "shorts" workflow through a pull request; Argo CD syncs after merge.
+images:
+  - name: ghcr.io/luphu/nim/shorts
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+configMapGenerator:
+  - name: shorts-config
+    behavior: merge
+    literals:
+      - TREND_KEYWORDS=ai generated,ai video,sora,veo
+      - TREND_REGION=US
+      - TREND_LANGUAGE=en
+      - TREND_WINDOW_HOURS=72
+      - TREND_MAX_RESULTS=25
+      - CONTENT_LANGUAGE=ru
+      - NIM_TEXT_MODEL=nvidia/nemotron-3-super-120b-a12b
+      - NIM_VISION_MODEL=nvidia/cosmos-reason2-8b
+      - NIM_VIDEO_RESOLUTION=720_9_16
+      - NIM_VIDEO_FPS=24
+      - NIM_VIDEO_MAX_FRAMES=197
+      - TARGET_MIN_S=15
+      - TARGET_MAX_S=30
+      # S3-compatible endpoint (not a secret). Example: Yandex Object Storage.
+      - S3_ENDPOINT_URL=https://storage.yandexcloud.net
+      - S3_REGION=ru-central1
+      - S3_BUCKET=CHANGE-ME-shorts-artifacts
+      - S3_PREFIX=shorts/
+patches:
+  # PostgreSQL data lives on rpi-node-3's SD card (most free RAM; no control plane, no Argo CD).
+  - target: { kind: StatefulSet, name: shorts-postgres }
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value: { kubernetes.io/hostname: rpi-node-3 }
+  # Heavy pipeline pods prefer the same node and must stay off the control plane (rpi1).
+  - target: { kind: CronJob }
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/affinity
+        value:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - { key: homelab/role, operator: In, values: [worker] }
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - { key: kubernetes.io/hostname, operator: In, values: [rpi-node-3] }
+  # Enable the daily run only after `shorts doctor` reports no blockers:
+  # - target: { kind: CronJob, name: shorts-pipeline }
+  #   patch: |-
+  #     - op: replace
+  #       path: /spec/suspend
+  #       value: false

@@ -17,10 +17,13 @@
 
 ```
 bootstrap/        установка Argo CD (Helm values) и корневое Application
-apps/             Application'ы (app-of-apps): argocd (самоуправление), srvmon
+apps/             Application'ы (app-of-apps): argocd (самоуправление), srvmon, shorts
 charts/srvmon/    Helm-чарт мониторинга сервера в Yandex Cloud
 images/           Dockerfile'ы tunnel (autossh) и report (python), собираются CI в GHCR
-scripts/          create-secrets.sh — Secret'ы вне Git
+shorts/           пайплайн YouTube Shorts (Python, NVIDIA NIM, FFmpeg) — см. shorts/README.md
+deploy/shorts/    Kustomize base + overlay k3s для shorts (CronJob, PostgreSQL)
+docs/             capabilities.md (проверка API), shorts-operations.md (эксплуатация)
+scripts/          create-secrets.sh, create-shorts-secrets.sh — Secret'ы вне Git; shorts-job.sh
 ```
 
 ## srvmon
@@ -32,6 +35,13 @@ YC server: vmagent (буфер 512 МБ) ─► 127.0.0.1:18428 ══ssh -R═�
                          CronJob srvmon-report 19:59 Tbilisi ─► xlsx в Telegram
                          DaemonSet node-exporter на всех нодах (job=rpi-node)
 ```
+
+## shorts
+
+Генерация оригинальных Shorts по темам трендов: CronJob раз в сутки на rpi-node-3, PostgreSQL (1 реплика,
+local-path), артефакты в S3, тяжёлый inference — удалённо в NVIDIA. По умолчанию `DRY_RUN=true`,
+CronJob приостановлен. Настройка и ограничения: [shorts/README.md](shorts/README.md),
+[docs/capabilities.md](docs/capabilities.md), [docs/shorts-operations.md](docs/shorts-operations.md).
 
 ## Развёртывание с нуля
 

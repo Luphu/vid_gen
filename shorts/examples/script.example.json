@@ -1,0 +1,48 @@
+{
+  "concept": "Бумажный робот складывается из тетрадного листа и чинит сломанный карандаш",
+  "target_audience": "взрослые зрители, интересующиеся ИИ",
+  "language": "ru",
+  "hook": "Что если тетрадь оживёт?",
+  "scenes": [
+    {
+      "index": 0,
+      "duration_s": 6.0,
+      "generation_prompt": "A small glowing paper robot folds itself out of a notebook page on a wooden desk, soft morning light, macro lens, slow dolly-in, vertical 9:16 framing, subject centered",
+      "negative_prompt": "text, logo",
+      "narration": "Обычная тетрадь. Почти.",
+      "on_screen_text": "Тетрадь оживает",
+      "important_region": "center"
+    },
+    {
+      "index": 1,
+      "duration_s": 6.0,
+      "generation_prompt": "A small glowing paper robot walks across out of a notebook page on a wooden desk, soft morning light, macro lens, slow dolly-in, vertical 9:16 framing, subject centered",
+      "negative_prompt": "text, logo",
+      "narration": "Робот находит сломанный карандаш.",
+      "on_screen_text": "Находка",
+      "important_region": "center"
+    },
+    {
+      "index": 2,
+      "duration_s": 6.0,
+      "generation_prompt": "A small glowing paper robot repairs a pencil on a notebook page on a wooden desk, soft morning light, macro lens, slow dolly-in, vertical 9:16 framing, subject centered",
+      "negative_prompt": "text, logo",
+      "narration": "И чинит его за секунду.",
+      "on_screen_text": "Готово!",
+      "important_region": "center"
+    }
+  ],
+  "narration": "Обычная тетрадь. Почти. Робот находит сломанный карандаш. И чинит его за секунду.",
+  "title": "Бумажный робот чинит карандаш",
+  "description": "Короткая история о бумажном роботе. Видеоряд сгенерирован ИИ.",
+  "tags": [
+    "ai",
+    "shorts",
+    "paper robot"
+  ],
+  "disclosure": {
+    "contains_synthetic_media": true,
+    "made_for_kids": false,
+    "disclosure_text": "Видеоряд сгенерирован ИИ"
+  }
+}

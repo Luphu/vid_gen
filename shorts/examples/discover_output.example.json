@@ -1,0 +1,59 @@
+{
+  "_note": "synthetic example; output of `shorts discover`",
+  "scope": {
+    "keywords": [
+      "ai generated",
+      "ai video"
+    ],
+    "channel_allowlist": [],
+    "region": "US",
+    "language": "en",
+    "published_after": "2026-10-08T06:15:00Z",
+    "order": "viewCount",
+    "max_results": 25,
+    "pages_fetched": 2,
+    "fetched_at": "2026-10-11T06:15:00Z"
+  },
+  "candidates": [
+    {
+      "video_id": "fixtAI00001",
+      "title": "Paper city folds into a dragon #shorts #aivideo",
+      "description": "Made with AI.",
+      "channel_id": "UCfixture000000000000001",
+      "channel_title": "Fixture Channel A",
+      "published_at": "2026-10-10T08:00:00Z",
+      "duration_s": 21.0,
+      "tags": [
+        "ai generated"
+      ],
+      "view_count": 120000,
+      "like_count": null,
+      "comment_count": null,
+      "default_language": null,
+      "contains_synthetic_media": null,
+      "format_status": "probable",
+      "format_reason": "duration 21s <= 180s and #shorts marker in metadata",
+      "ai": {
+        "ai_likelihood": 0.85,
+        "evidence": [
+          {
+            "field": "title",
+            "snippet": "Paper city folds into a dragon #shorts #aivideo"
+          },
+          {
+            "field": "description",
+            "snippet": "Made with AI."
+          },
+          {
+            "field": "tags",
+            "snippet": "ai generated"
+          }
+        ],
+        "classification_source": "metadata_keywords",
+        "note": "heuristic signal, not proof; absence of a label does not prove absence of AI"
+      },
+      "fetched_at": "2026-10-11T06:15:00Z",
+      "search_rank": 0
+    }
+  ]
+}

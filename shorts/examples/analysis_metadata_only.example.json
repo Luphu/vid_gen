@@ -1,0 +1,41 @@
+{
+  "mode": "metadata_only",
+  "video_id": "fixtAI00001",
+  "topic": "Тест: короткие ИИ-ролики о необычных предметах",
+  "hook": "по названию: обещание неожиданного превращения",
+  "structure": [],
+  "pacing": null,
+  "scene_changes": null,
+  "scenes": [],
+  "on_screen_text": [],
+  "audio_role": null,
+  "audience_interest_hypothesis": "гипотеза: интерес к визуальным трансформациям",
+  "confidence": "low",
+  "sources": [
+    "youtube_data_api:videos.list fetched_at=2026-10-11T06:15:00+00:00"
+  ],
+  "limitations": [
+    "no media access: frames, editing, pacing, on-screen text, speech and music were not analysed",
+    "hook inferred from title/description only",
+    "audience-interest reason is a hypothesis of the text model, not a measurement"
+  ],
+  "ai": {
+    "ai_likelihood": 0.85,
+    "evidence": [
+      {
+        "field": "title",
+        "snippet": "Paper city folds into a dragon #shorts #aivideo"
+      },
+      {
+        "field": "description",
+        "snippet": "Made with AI."
+      },
+      {
+        "field": "tags",
+        "snippet": "ai generated"
+      }
+    ],
+    "classification_source": "metadata_keywords",
+    "note": "heuristic signal, not proof; absence of a label does not prove absence of AI"
+  }
+}

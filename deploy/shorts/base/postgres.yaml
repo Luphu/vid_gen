@@ -1,0 +1,84 @@
+# Single-replica PostgreSQL on a local-path PVC.
+# NOT HA: the volume lives on one node's SD card. If that node dies, the DB is down until the
+# node returns or a backup is restored (see docs/shorts-operations.md). The overlay pins the node.
+apiVersion: v1
+kind: Service
+metadata:
+  name: shorts-postgres
+  labels: { app.kubernetes.io/name: shorts-postgres }
+spec:
+  selector: { app.kubernetes.io/name: shorts-postgres }
+  ports:
+    - { name: pg, port: 5432, targetPort: 5432 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: shorts-postgres
+  labels: { app.kubernetes.io/name: shorts-postgres }
+spec:
+  serviceName: shorts-postgres
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: shorts-postgres }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: shorts-postgres }
+    spec:
+      securityContext:
+        runAsUser: 70        # postgres user in the alpine image
+        runAsGroup: 70
+        fsGroup: 70
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: postgres
+          image: postgres:17.6-alpine   # multi-arch, includes linux/arm64
+          args:
+            - -c
+            - shared_buffers=32MB
+            - -c
+            - max_connections=20
+            - -c
+            - work_mem=4MB
+            - -c
+            - wal_buffers=1MB
+            - -c
+            - max_wal_size=256MB
+            - -c
+            - synchronous_commit=on
+          env:
+            - { name: POSTGRES_DB, value: shorts }
+            - { name: POSTGRES_USER, value: shorts }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: shorts-db, key: POSTGRES_PASSWORD } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports:
+            - { name: pg, containerPort: 5432 }
+          readinessProbe:
+            exec: { command: [pg_isready, -U, shorts, -d, shorts] }
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: [pg_isready, -U, shorts, -d, shorts] }
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits:   { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: run, mountPath: /var/run/postgresql }
+      volumes:
+        - name: run
+          emptyDir: { sizeLimit: 16Mi }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests: { storage: 2Gi }

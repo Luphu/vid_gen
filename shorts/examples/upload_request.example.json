@@ -1,0 +1,22 @@
+{
+  "_note": "body sent with videos.insert (uploadType=resumable, part=snippet,status)",
+  "resource": {
+    "snippet": {
+      "title": "Бумажный робот чинит карандаш",
+      "description": "Короткая история о бумажном роботе. Видеоряд сгенерирован ИИ.",
+      "tags": [
+        "ai",
+        "shorts",
+        "paper robot"
+      ],
+      "categoryId": "28",
+      "defaultLanguage": "ru",
+      "defaultAudioLanguage": "ru"
+    },
+    "status": {
+      "privacyStatus": "private",
+      "selfDeclaredMadeForKids": false,
+      "containsSyntheticMedia": true
+    }
+  }
+}

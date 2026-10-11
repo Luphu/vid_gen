@@ -1,0 +1,11 @@
+{
+  "video_id": "fixtAI00001",
+  "license": "CC-BY-4.0, written permission from the author 2026-10-01",
+  "provided_by": "author@example.com",
+  "files": [
+    "clip.mp4",
+    "clip.srt"
+  ],
+  "is_short": true,
+  "notes": "Original file supplied by the author for analysis"
+}
