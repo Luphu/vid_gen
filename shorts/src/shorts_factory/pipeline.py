@@ -34,7 +34,7 @@ from .providers.nim_video import VideoRequest
 from .providers.tts import TTS
 from .qc import check_final, check_scene
 from .render import RenderInputs, expected_audio, render
-from .scripting import ScriptRejected, frames_for, generate_script, pick_format
+from .scripting import ScriptRejected, compose_video_prompt, frames_for, generate_script, pick_format
 from .storage import ArtifactStore
 from .store import Job, Store
 from .trends import TrendSource
@@ -294,7 +294,7 @@ def stage_generate(d: Deps, job: Job) -> Job:
 
         op_key = f"{job.id}:gen:{sc.index}:{len(ops)}"
         d.store.begin_op(op_key, job.id, "video_gen")
-        req = VideoRequest(prompt=sc.generation_prompt, negative_prompt=sc.negative_prompt,
+        req = VideoRequest(prompt=compose_video_prompt(script, sc), negative_prompt=sc.negative_prompt,
                            num_frames=frames_for(sc.duration_s, d.s.gen_fps, d.s.gen_min_frames,
                                                  d.s.gen_max_frames),
                            fps=d.s.gen_fps, resolution=d.s.gen_resolution,
@@ -328,7 +328,7 @@ def stage_generate(d: Deps, job: Job) -> Job:
             return stage_generate(d, d.store.get_job(job.id) or job)  # next attempt (bounded above)
         d.artifacts.put_file(key, local, "video/mp4")
         d.store.update_op(op_key, "succeeded", request_id=rid, artifact_key=key)
-        results.append({"index": sc.index, "key": key, "request_id": rid})
+        results.append({"index": sc.index, "key": key, "request_id": rid, "prompt": req.prompt})
 
     narration = []
     for sc in script.scenes:

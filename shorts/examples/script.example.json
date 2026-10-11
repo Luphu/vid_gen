@@ -3,12 +3,14 @@
   "target_audience": "взрослые зрители, интересующиеся ИИ",
   "language": "ru",
   "hook": "Что если тетрадь оживёт?",
+  "subject": "a palm-sized origami robot folded from plain white paper, square head, two thin arms, soft warm glow along its folds",
+  "visual_style": "photorealistic macro footage, warm morning window light, shallow depth of field, muted natural colours",
   "scenes": [
     {
       "index": 0,
       "duration_s": 6.0,
-      "generation_prompt": "A small glowing paper robot folds itself out of a notebook page on a wooden desk, soft morning light, macro lens, slow dolly-in, vertical 9:16 framing, subject centered",
-      "negative_prompt": "text, logo",
+      "generation_prompt": "The robot unfolds itself out of a blank notebook page on a wooden desk, its paper limbs creasing open one by one, slow dolly-in from a low angle",
+      "negative_prompt": null,
       "narration": "Обычная тетрадь. Почти.",
       "on_screen_text": "Тетрадь оживает",
       "important_region": "center"
@@ -16,8 +18,8 @@
     {
       "index": 1,
       "duration_s": 6.0,
-      "generation_prompt": "A small glowing paper robot walks across out of a notebook page on a wooden desk, soft morning light, macro lens, slow dolly-in, vertical 9:16 framing, subject centered",
-      "negative_prompt": "text, logo",
+      "generation_prompt": "The robot walks across the desk between pencils and stops beside a broken pencil, camera tracking at desk level",
+      "negative_prompt": null,
       "narration": "Робот находит сломанный карандаш.",
       "on_screen_text": "Находка",
       "important_region": "center"
@@ -25,8 +27,8 @@
     {
       "index": 2,
       "duration_s": 6.0,
-      "generation_prompt": "A small glowing paper robot repairs a pencil on a notebook page on a wooden desk, soft morning light, macro lens, slow dolly-in, vertical 9:16 framing, subject centered",
-      "negative_prompt": "text, logo",
+      "generation_prompt": "The robot presses the two halves of the pencil together and the crack closes, close-up, slow push-in",
+      "negative_prompt": null,
       "narration": "И чинит его за секунду.",
       "on_screen_text": "Готово!",
       "important_region": "center"

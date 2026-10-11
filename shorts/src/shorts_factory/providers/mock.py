@@ -85,8 +85,11 @@ class MockVideo:
 
 def default_mock_responses(language: str = "ru") -> dict[str, dict]:
     """Schema-valid canned outputs for dry runs with PROVIDER_MODE=mock."""
-    scene = ("A small glowing paper robot folds itself out of a notebook page on a wooden desk, "
-             "soft morning light, macro lens, slow dolly-in, vertical 9:16 framing, subject centered")
+    scene = ("The robot unfolds itself out of a blank notebook page on a wooden desk, its paper limbs "
+             "creasing open one by one, slow dolly-in from a low angle")
+    walk = ("The robot walks across the desk between pencils and stops beside a broken pencil, "
+            "camera tracking at desk level")
+    fix = "The robot presses the two halves of the pencil together and the crack closes, close-up, slow push-in"
     return {
         "MetaOut": {"topic": "Тест: короткие ИИ-ролики о необычных предметах",
                     "hook": "по названию: обещание неожиданного превращения", "confidence": "low",
@@ -102,16 +105,19 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
             "concept": "Бумажный робот складывается из тетрадного листа и чинит сломанный карандаш",
             "target_audience": "взрослые зрители, интересующиеся ИИ", "language": language,
             "hook": "Что если тетрадь оживёт?",
+            "subject": "a palm-sized origami robot folded from plain white paper, square head, two thin arms, "
+                       "soft warm glow along its folds",
+            "visual_style": "photorealistic macro footage, warm morning window light, shallow depth of field, "
+                            "muted natural colours",
             "scenes": [
-                {"index": 0, "duration_s": 6, "generation_prompt": scene, "negative_prompt": "text, logo",
+                {"index": 0, "duration_s": 6, "generation_prompt": scene, "negative_prompt": None,
                  "narration": "Обычная тетрадь. Почти.", "on_screen_text": "Тетрадь оживает",
                  "important_region": "center"},
-                {"index": 1, "duration_s": 6, "generation_prompt": scene.replace("folds itself", "walks across"),
-                 "negative_prompt": "text, logo", "narration": "Робот находит сломанный карандаш.",
+                {"index": 1, "duration_s": 6, "generation_prompt": walk,
+                 "negative_prompt": None, "narration": "Робот находит сломанный карандаш.",
                  "on_screen_text": "Находка", "important_region": "center"},
-                {"index": 2, "duration_s": 6, "generation_prompt": scene.replace("folds itself out of",
-                                                                                 "repairs a pencil on"),
-                 "negative_prompt": "text, logo", "narration": "И чинит его за секунду.",
+                {"index": 2, "duration_s": 6, "generation_prompt": fix,
+                 "negative_prompt": None, "narration": "И чинит его за секунду.",
                  "on_screen_text": "Готово!", "important_region": "center"},
             ],
             "narration": "Обычная тетрадь. Почти. Робот находит сломанный карандаш. И чинит его за секунду.",
