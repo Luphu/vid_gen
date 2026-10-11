@@ -1,0 +1,50 @@
+{
+  "_comment": "Synthetic fixture for TREND_SOURCE=fixture. Not real YouTube data.",
+  "items": [
+    {
+      "video_id": "fixtAI00001",
+      "title": "Paper city folds into a dragon #shorts #aivideo",
+      "description": "Made with AI. Full process on my channel.",
+      "channel_id": "UCfixture000000000000001",
+      "channel_title": "Fixture Channel A",
+      "published_at": "2026-10-10T08:00:00Z",
+      "duration_s": 21,
+      "tags": ["ai generated", "paper"],
+      "view_count": 120000,
+      "like_count": 5000,
+      "comment_count": 120,
+      "default_language": "en",
+      "contains_synthetic_media": null
+    },
+    {
+      "video_id": "fixtLONG001",
+      "title": "Ten minute explainer about AI video",
+      "description": "Long form.",
+      "channel_id": "UCfixture000000000000002",
+      "channel_title": "Fixture Channel B",
+      "published_at": "2026-10-09T08:00:00Z",
+      "duration_s": 600,
+      "tags": [],
+      "view_count": 900000,
+      "like_count": null,
+      "comment_count": null,
+      "default_language": "en",
+      "contains_synthetic_media": null
+    },
+    {
+      "video_id": "fixtNOAI001",
+      "title": "My cat jumps over a fence",
+      "description": "Filmed on my phone",
+      "channel_id": "UCfixture000000000000003",
+      "channel_title": "Fixture Channel C",
+      "published_at": "2026-10-10T12:00:00Z",
+      "duration_s": 15,
+      "tags": [],
+      "view_count": 50000,
+      "like_count": null,
+      "comment_count": null,
+      "default_language": "en",
+      "contains_synthetic_media": null
+    }
+  ]
+}

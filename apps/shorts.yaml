@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shorts
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Luphu/nim.git
+    targetRevision: main
+    path: deploy/shorts/overlays/k3s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shorts
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true]
+  # Secret'ы создаются вне Git (scripts/create-shorts-secrets.sh) и Argo CD ими не управляет.
+  # PVC PostgreSQL не удаляется при prune: StatefulSet volumeClaimTemplates живут отдельно от StatefulSet.

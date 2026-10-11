@@ -1,0 +1,57 @@
+{
+  "mode": "full_media",
+  "video_id": "fixtAI00001",
+  "topic": "Тест: превращение предметов",
+  "hook": "первый кадр с крупным объектом",
+  "structure": [
+    "завязка",
+    "превращение",
+    "финал"
+  ],
+  "pacing": "быстрая смена сцен",
+  "scene_changes": 5,
+  "scenes": [
+    {
+      "t_start": 0.0,
+      "description": "крупный план предмета",
+      "composition": "центр",
+      "on_screen_text": null
+    }
+  ],
+  "on_screen_text": [],
+  "audio_role": "audio track present (aac), mean volume -18.2 dB; content not analysed",
+  "audience_interest_hypothesis": "гипотеза: эффект неожиданности",
+  "confidence": "medium",
+  "sources": [
+    "youtube_data_api:videos.list fetched_at=2026-10-11T06:15:00+00:00",
+    "reference_media:s3:reference/fixtAI00001/ license='CC-BY-4.0, written permission 2026-10-01'",
+    "ffprobe/ffmpeg measurements"
+  ],
+  "limitations": [
+    "audio content (speech, music) not analysed by a model; only presence/level measured",
+    "vision model saw 8 sampled frames, not the full video"
+  ],
+  "ai": {
+    "ai_likelihood": 0.85,
+    "evidence": [
+      {
+        "field": "title",
+        "snippet": "Paper city folds into a dragon #shorts #aivideo"
+      },
+      {
+        "field": "description",
+        "snippet": "Made with AI."
+      },
+      {
+        "field": "tags",
+        "snippet": "ai generated"
+      },
+      {
+        "field": "vision_model",
+        "snippet": "слишком гладкие текстуры"
+      }
+    ],
+    "classification_source": "combined",
+    "note": "heuristic signal, not proof; absence of a label does not prove absence of AI"
+  }
+}

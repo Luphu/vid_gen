@@ -1,0 +1,16 @@
+# PostgreSQL accepts connections only from pods of this namespace.
+# Egress of the pipeline is not restricted: NVIDIA/YouTube/S3 endpoints are external and change IPs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shorts-postgres-ingress
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: shorts-postgres }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: shorts }
+      ports:
+        - { protocol: TCP, port: 5432 }

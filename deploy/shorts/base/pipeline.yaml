@@ -1,0 +1,176 @@
+# Daily pipeline run. One video at a time is enforced twice: concurrencyPolicy=Forbid and a DB lease.
+# backoffLimit=0: the app persists stage progress; a failed pod is resumed by the next schedule or manually,
+# never blindly retried by Kubernetes (which could repeat billable calls).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shorts-pipeline
+  labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: pipeline }
+spec:
+  schedule: "15 6 * * *"
+  timeZone: Etc/UTC
+  suspend: true               # enable after `shorts doctor` passes (overlay patch)
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 10800
+      ttlSecondsAfterFinished: 259200
+      template:
+        metadata:
+          labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: pipeline }
+        spec:
+          restartPolicy: Never
+          imagePullSecrets: [{ name: ghcr-pull }]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: shorts
+              image: ghcr.io/luphu/nim/shorts
+              args: [--json-logs, run]
+              envFrom:
+                - configMapRef: { name: shorts-config }
+                - secretRef: { name: shorts-db }
+                - secretRef: { name: shorts-app }
+                - secretRef: { name: shorts-nvidia, optional: true }
+                - secretRef: { name: shorts-youtube, optional: true }
+                - secretRef: { name: shorts-s3, optional: true }
+              resources:
+                # ffmpeg (2 threads, 720x1280 x264) + base64 decode of one generated scene (<= 96 MiB).
+                requests: { cpu: 500m, memory: 512Mi }
+                limits:   { cpu: "2", memory: 1536Mi, ephemeral-storage: 5Gi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: work
+              emptyDir: { sizeLimit: 4Gi }
+            - name: tmp
+              emptyDir: { sizeLimit: 256Mi }
+---
+# Retention: YouTube API data (<=25 days), artifacts (ARTIFACT_RETENTION_DAYS), stale work dirs.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shorts-purge
+  labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: purge }
+spec:
+  schedule: "40 4 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: purge }
+        spec:
+          restartPolicy: Never
+          imagePullSecrets: [{ name: ghcr-pull }]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: shorts
+              image: ghcr.io/luphu/nim/shorts
+              args: [--json-logs, purge]
+              envFrom:
+                - configMapRef: { name: shorts-config }
+                - secretRef: { name: shorts-db }
+                - secretRef: { name: shorts-app }
+                - secretRef: { name: shorts-s3, optional: true }
+              resources:
+                requests: { cpu: 20m, memory: 96Mi }
+                limits:   { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - { name: work, emptyDir: { sizeLimit: 64Mi } }
+            - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+---
+# Nightly logical backup: pg_dump (postgres image) -> emptyDir -> S3 via the app image.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: shorts-db-backup
+  labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: backup }
+spec:
+  schedule: "10 3 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels: { app.kubernetes.io/name: shorts, app.kubernetes.io/component: backup }
+        spec:
+          restartPolicy: Never
+          imagePullSecrets: [{ name: ghcr-pull }]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            fsGroup: 10001
+            seccompProfile: { type: RuntimeDefault }
+          initContainers:
+            - name: dump
+              image: postgres:17.6-alpine
+              command: [sh, -c, 'pg_dump --format=custom --no-owner --file=/backup/shorts.dump "$DATABASE_URL"']
+              envFrom:
+                - secretRef: { name: shorts-db }
+              resources:
+                requests: { cpu: 20m, memory: 32Mi }
+                limits:   { memory: 128Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: backup, mountPath: /backup }
+          containers:
+            - name: upload
+              image: ghcr.io/luphu/nim/shorts
+              args: [--json-logs, backup-upload, /backup/shorts.dump]
+              envFrom:
+                - configMapRef: { name: shorts-config }
+                - secretRef: { name: shorts-db }
+                - secretRef: { name: shorts-app }
+                - secretRef: { name: shorts-s3, optional: true }
+              resources:
+                requests: { cpu: 20m, memory: 96Mi }
+                limits:   { memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: backup, mountPath: /backup }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - { name: backup, emptyDir: { sizeLimit: 512Mi } }
+            - { name: tmp, emptyDir: { sizeLimit: 64Mi } }

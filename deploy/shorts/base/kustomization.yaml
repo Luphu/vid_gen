@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shorts
+labels:
+  - pairs: { app.kubernetes.io/part-of: shorts }
+    includeSelectors: false
+resources:
+  - postgres.yaml
+  - pipeline.yaml
+  - networkpolicy.yaml
+# Non-secret configuration. Secrets (shorts-db, shorts-app, shorts-nvidia, shorts-youtube, shorts-s3)
+# are created outside Git by scripts/create-shorts-secrets.sh.
+configMapGenerator:
+  - name: shorts-config
+    literals:
+      - APP_ENV=prod
+      - DRY_RUN=true
+      - AUTO_PUBLISH=false
+      - PROVIDER_MODE=nvidia
+      - TREND_SOURCE=youtube
+      - REFERENCE_SOURCE=none
+      - STORAGE_BACKEND=s3
+      - TTS_PROVIDER=none
+      - WORK_DIR=/work/tmp
+      - MAX_WORK_DIR_BYTES=3221225472
+      - FFMPEG_THREADS=2
+      - FFMPEG_TIMEOUT_S=900
+      - NIM_MAX_CONCURRENCY=1
+      - DAILY_VIDEO_LIMIT=1
+      - PUBLISH_DAILY_LIMIT=1
+      - BUDGET_VIDEO_REQUESTS_PER_DAY=0
+      - BUDGET_VIDEO_REQUESTS_PER_JOB=6
+      - ARTIFACT_RETENTION_DAYS=14
+      - YOUTUBE_DATA_RETENTION_DAYS=25
