@@ -102,7 +102,8 @@ def cmd_doctor(s: Settings, args) -> int:
             f"BUDGET_VIDEO_REQUESTS_PER_DAY={s.budget.video_requests_per_day}",
             blocking="generation disabled until BUDGET_VIDEO_REQUESTS_PER_DAY > 0")
     if s.trend_source == "youtube":
-        chk("YOUTUBE_API_KEY set", creds["youtube_api_key"], blocking="YOUTUBE_API_KEY missing")
+        chk("YouTube search auth (API key or OAuth)", creds["youtube_api_key"] or creds["youtube_refresh_token"],
+            blocking="YOUTUBE_API_KEY or YouTube OAuth missing")
     if not s.dry_run:
         for k in ("youtube_client_id", "youtube_client_secret", "youtube_refresh_token", "youtube_channel_id",
                   "upload_uri_key"):
