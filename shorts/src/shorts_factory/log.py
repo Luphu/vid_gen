@@ -14,6 +14,8 @@ import time
 
 _PATTERNS = [
     re.compile(r"nvapi-[A-Za-z0-9_\-]{8,}"),
+    re.compile(r"r8_[A-Za-z0-9]{20,}"),                # Replicate API token
+    re.compile(r"AIza[0-9A-Za-z_\-]{30,}"),           # Google API key
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-~+/=]{8,}"),
     re.compile(r"1//[A-Za-z0-9_\-]{10,}"),           # Google refresh token shape
     re.compile(r"ya29\.[A-Za-z0-9_\-.]{10,}"),        # Google access token shape

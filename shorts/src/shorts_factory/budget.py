@@ -12,9 +12,10 @@ from .store import Store
 _PT = ZoneInfo("America/Los_Angeles")  # YouTube quota resets at midnight Pacific Time
 
 BUCKETS = {
-    "nim_text": ("text_requests_per_day", "utc"),
-    "nim_vision": ("vision_requests_per_day", "utc"),
-    "nim_video": ("video_requests_per_day", "utc"),
+    "text": ("text_requests_per_day", "utc"),
+    "vision": ("vision_requests_per_day", "utc"),
+    "video": ("video_requests_per_day", "utc"),
+    "tts": ("tts_requests_per_day", "utc"),
     "yt_search": ("yt_search_calls_per_day", "pt"),
     "yt_units": ("yt_units_per_day", "pt"),
     "yt_upload": ("yt_uploads_per_day", "pt"),

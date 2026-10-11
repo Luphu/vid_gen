@@ -34,7 +34,7 @@ from .providers.nim_video import VideoRequest
 from .providers.tts import TTS
 from .qc import check_final, check_scene
 from .render import RenderInputs, expected_audio, render
-from .scripting import ScriptRejected, frames_for, generate_script
+from .scripting import ScriptRejected, frames_for, generate_script, pick_format
 from .storage import ArtifactStore
 from .store import Job, Store
 from .trends import TrendSource
@@ -120,8 +120,13 @@ def run_once(d: Deps) -> dict:
             n_today = d.store.count_jobs_since(start)
             if n_today >= d.s.daily_video_limit:
                 return {"status": "daily_limit", "detail": f"{n_today} job(s) today, limit {d.s.daily_video_limit}"}
-            disc = discover(d)
-            pool = [Candidate.model_validate(x) for x in d.store.unused_candidates(datetime.now(UTC).timestamp())]
+            now = datetime.now(UTC).timestamp()
+            pool = [Candidate.model_validate(x) for x in d.store.unused_candidates(now)]
+            fresh = [c for c in pool if c.fetched_at.timestamp() > now - d.s.trend_refresh_hours * 3600]
+            disc = None
+            if select_candidate(d.s, fresh) is None:  # search only when no fresh usable candidate is stored
+                disc = discover(d)
+                pool = [Candidate.model_validate(x) for x in d.store.unused_candidates(now)]
             cand = select_candidate(d.s, pool)
             if cand is None:
                 return {"status": "no_candidate", "discovery": disc}
@@ -196,9 +201,11 @@ def stage_analyze(d: Deps, job: Job) -> Job:
     if not raw:
         return d.store.transition(job, JobState.FAILED, reason="candidate data missing or purged")
     cand = Candidate.model_validate(raw)
+    if d.text is None:
+        raise ConfigError("text provider not configured (REPLICATE_API_TOKEN or TEXT_PROVIDER=nvidia)")
     media = d.media.fetch(cand.video_id, _work(d, job) / "reference")
     try:
-        if media and media.video:
+        if media and media.video and d.vision is not None:
             if media.manifest.is_short:
                 cand.format_status, cand.format_reason = FormatStatus.CONFIRMED, "rights-holder manifest"
             analysis, pref = analyze_full_media(cand, media, d.vision, d.ff, _work(d, job), d.s.content_language,
@@ -223,15 +230,18 @@ def stage_script(d: Deps, job: Job) -> Job:
     a = d.store.get_stage(job.id, "analysis")
     cand = Candidate.model_validate(d.store.get_candidate(job.video_id or "") or {})
     analysis = Analysis.model_validate(a["analysis"])  # type: ignore[index]
+    if d.text is None:
+        raise ConfigError("text provider not configured (REPLICATE_API_TOKEN or TEXT_PROVIDER=nvidia)")
+    fmt = pick_format(d.s, job.id)
     try:
-        script, pref = generate_script(d.s, d.text, cand, analysis)
+        script, pref = generate_script(d.s, d.text, cand, analysis, fmt)
     except (ScriptRejected, StructuredOutputError) as e:
         return _review(d, job, f"script rejected: {e}; retry with `shorts retry {job.id} --stage script`", None)
     except BudgetExceeded as e:
         raise Deferred(str(e)) from e
     return d.store.transition(job, JobState.SCRIPTED, stage="script",
-                              payload={"script": script.model_dump(mode="json"), "prompt": pref,
-                                       "model": d.s.nim_text_model})
+                              payload={"script": script.model_dump(mode="json"), "prompt": pref, "format": fmt,
+                                       "model": getattr(d.text, "model", "?")})
 
 
 def _scene_ops(d: Deps, job: Job, idx: int) -> list[dict]:
@@ -285,8 +295,9 @@ def stage_generate(d: Deps, job: Job) -> Job:
         op_key = f"{job.id}:gen:{sc.index}:{len(ops)}"
         d.store.begin_op(op_key, job.id, "video_gen")
         req = VideoRequest(prompt=sc.generation_prompt, negative_prompt=sc.negative_prompt,
-                           num_frames=frames_for(sc.duration_s, d.s.nim_video_fps, d.s.nim_video_max_frames),
-                           fps=d.s.nim_video_fps, resolution=d.s.nim_video_resolution,
+                           num_frames=frames_for(sc.duration_s, d.s.gen_fps, d.s.gen_min_frames,
+                                                 d.s.gen_max_frames),
+                           fps=d.s.gen_fps, resolution=d.s.gen_resolution,
                            seed=int(hashlib.sha256(op_key.encode()).hexdigest()[:8], 16) % 2**31)
         try:
             if d.video is None:

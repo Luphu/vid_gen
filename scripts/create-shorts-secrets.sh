@@ -42,6 +42,7 @@ KEY=$(existing shorts-app UPLOAD_URI_KEY)
 printf 'UPLOAD_URI_KEY=%s\n' "$KEY" > "$tmp/app.env"
 kubectl -n "$NS" create secret generic shorts-app --from-env-file="$tmp/app.env" --dry-run=client -o yaml | kubectl apply -f -
 
+apply_secret shorts-replicate REPLICATE_API_TOKEN
 apply_secret shorts-nvidia NVIDIA_API_KEY NIM_VIDEO_URL NIM_VIDEO_ASYNC_STATUS_URL
 # Refresh token можно не копировать руками: YOUTUBE_TOKEN_FILE=secrets/youtube-token.json (из `shorts auth init`)
 TOKEN_FILE=$(get YOUTUBE_TOKEN_FILE)
@@ -50,8 +51,7 @@ if [[ -n "$TOKEN_FILE" && -z "$(get YOUTUBE_REFRESH_TOKEN)" ]]; then
   printf 'YOUTUBE_REFRESH_TOKEN=%s\n' "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["refresh_token"])' "$TOKEN_FILE")" >> "$tmp/merged.env"
   ENV_FILE="$tmp/merged.env"
 fi
-apply_secret shorts-youtube YOUTUBE_API_KEY YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN \
-  YOUTUBE_CHANNEL_ID PUBLISH_CONSENT_CHANNEL_ID PUBLISH_MADE_FOR_KIDS PUBLISH_PRIVACY PUBLISH_TIME_UTC
+apply_secret shorts-youtube YOUTUBE_API_KEY YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN
 apply_secret shorts-s3 S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY
 
 # Pull secret для приватных образов GHCR: GHCR_USER / GHCR_TOKEN (PAT с read:packages)

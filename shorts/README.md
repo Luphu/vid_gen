@@ -4,8 +4,8 @@ MVP-пайплайн: найти недавние популярные канд�
 доступные материалы → написать **новый** сценарий на похожую тему → сгенерировать сцены через NVIDIA
 (Cosmos3 Generator) → собрать вертикальное видео FFmpeg → проверить → загрузить на свой канал.
 
-Перед настройкой прочитайте [docs/capabilities.md](../docs/capabilities.md): **hosted-endpoint генерации
-cosmos3-nano не задокументирован** — без `NIM_VIDEO_URL` этап генерации не работает (ошибка, а не mock).
+Перед настройкой прочитайте [docs/capabilities.md](../docs/capabilities.md): production-генерация идёт через
+**Replicate**; NVIDIA trial — только для оценки (условия trial запрещают production).
 Эксплуатация, бюджет, бэкап: [docs/shorts-operations.md](../docs/shorts-operations.md).
 
 ## Что безопасно по умолчанию
@@ -35,48 +35,58 @@ NIM_VIDEO_RESOLUTION=256_9_16 .venv/bin/shorts run --dry-run
 
 ## Настройка
 
-### 1. NVIDIA
+### 1. Replicate (текст, видео, озвучка — production)
 
-1. Ключ `nvapi-…` создаётся на build.nvidia.com («Get API Key»). Не вставляйте его в чат и не коммитьте.
-2. Перед использованием trial прочтите NVIDIA API Trial Terms в своём аккаунте (см. capabilities §2).
-3. Текст: `NIM_TEXT_MODEL` (по умолчанию `nvidia/nemotron-3-super-120b-a12b`), анализ: `NIM_VISION_MODEL`.
-4. Видео: укажите `NIM_VIDEO_URL` — URL `…/v1/infer` из кабинета NVIDIA (если появится для вашего ключа)
-   или self-hosted Cosmos3 Generator NIM на GPU-хосте. Для async-ответов `202 + NVCF-REQID` —
-   `NIM_VIDEO_ASYNC_STATUS_URL=https://…/{request_id}`, только если он задокументирован для вашего endpoint.
-5. Бюджет: `BUDGET_VIDEO_REQUESTS_PER_DAY` (> 0 включает генерацию), `BUDGET_VIDEO_REQUESTS_PER_JOB`.
+NVIDIA trial запрещает использовать сгенерированный контент в production (docs/capabilities.md §2), поэтому всё,
+что попадает в публикацию, генерируется через Replicate:
+
+1. Аккаунт на replicate.com → Billing: привязать оплату (модели платные, $0.10 за клип 720p).
+2. Account → API tokens → создать токен `r8_…`. В чат не вставлять: только в `secrets/shorts.env`
+   (`REPLICATE_API_TOKEN=…`).
+3. Модели по умолчанию: `qwen/qwen3-235b-a22b-instruct-2507` (сценарий), `wan-video/wan-2.2-t2v-fast`
+   (видео 9:16, 720p), `minimax/speech-02-turbo` (озвучка, голос `Russian_ReliableMan`).
+
+NVIDIA (`NVIDIA_API_KEY`) остаётся для `doctor --live` и экспериментов (`TEXT_PROVIDER=nvidia`).
 
 ### 2. YouTube
 
-1. Google Cloud: включить **YouTube Data API v3**; создать API key (поиск) и OAuth client типа **Desktop app**.
-2. OAuth consent screen: добавить себя в test users. В статусе «Testing» refresh token живёт 7 дней —
-   для постоянной работы переведите приложение в «In production» (scopes `youtube.upload`, `youtube.readonly`).
-3. Авторизация владельца канала (на своём компьютере, токен пишется в файл 0600 и не печатается):
+**2.1. API key для поиска** — уже есть, но в его проекте Google Cloud выключен YouTube Data API v3.
+Откройте console.cloud.google.com → выберите проект ключа → «APIs & Services» → «Library» → «YouTube Data API v3»
+→ **Enable**. Рекомендуется ограничить ключ: «Credentials» → ключ → «API restrictions» → только YouTube Data API v3.
+
+**2.2. Доступ на загрузку (OAuth)** — API key не умеет загружать видео; нужен вход владельца канала:
+
+1. Тот же проект → «APIs & Services» → **OAuth consent screen**: тип *External*, название любое, ваш email;
+   в «Test users» добавьте Google-аккаунт, которому принадлежит канал @whale_kiddo.
+2. «Credentials» → **Create credentials → OAuth client ID** → тип **Desktop app** → скачайте/скопируйте
+   `client_id` и `client_secret` в `secrets/shorts.env` (`YOUTUBE_CLIENT_ID=…`, `YOUTUBE_CLIENT_SECRET=…`).
+3. На своём компьютере, из каталога `shorts/`:
 
    ```bash
-   mkdir -p ../secrets
-   YOUTUBE_CLIENT_ID=… YOUTUBE_CLIENT_SECRET=… .venv/bin/shorts auth init --out ../secrets/youtube-token.json
+   set -a; . ../secrets/shorts.env; set +a
+   .venv/bin/shorts auth init --out ../secrets/youtube-token.json
    ```
 
-4. `YOUTUBE_CHANNEL_ID` — id канала (`UC…`); загрузка отказывает, если токен принадлежит другому каналу.
-5. Аудитория: `PUBLISH_MADE_FOR_KIDS=false|true` — обязателен для любой реальной загрузки.
-6. Автопубликация (после первой приватной загрузки): `AUTO_PUBLISH=true`,
-   `PUBLISH_CONSENT_CHANNEL_ID=<тот же UC…>`, `PUBLISH_PRIVACY=private|unlisted|public`,
-   `PUBLISH_TIME_UTC=HH:MM` (по желанию, только для public), `PUBLISH_DAILY_LIMIT=1`.
-   Первая реальная загрузка всегда private, даже при автопубликации.
+   Откроется браузер: войдите аккаунтом канала и разрешите доступ (загрузка видео + чтение канала).
+   Токен сохранится в файл с правами 0600, на экран не выводится. Пароль никуда, кроме страницы Google, не вводится.
+4. В режиме «Testing» токен живёт 7 дней. Для постоянной работы: OAuth consent screen → **Publish app**
+   (для личного использования проверка Google не обязательна, при входе будет предупреждение «unverified app»).
 
-### 3. Хранилище (S3-совместимое)
+Канал: `YOUTUBE_CHANNEL_ID=UCGakgXaB9bPT374KLj1G0Xw` (@whale_kiddo) — уже в ConfigMap. Загрузка отказывает,
+если токен принадлежит другому каналу. Контент: общая аудитория 13+, `PUBLISH_MADE_FOR_KIDS=false`.
+Автопубликация (после первой приватной загрузки): `AUTO_PUBLISH=true`, `PUBLISH_PRIVACY=public`.
 
-Любой S3 API (Yandex Object Storage, Cloudflare R2, MinIO/Garage в LAN). Нужны bucket, ключ с правами
-на `S3_PREFIX`, `S3_ENDPOINT_URL`, `S3_REGION`. Структура: `jobs/<job>/scenes/*.mp4`, `jobs/<job>/final.mp4`,
-`backups/YYYY-MM-DD/shorts.dump`, `reference/<video_id>/manifest.json` (разрешённые материалы).
-Рекомендуется lifecycle-правило bucket на `jobs/` (ARTIFACT_RETENTION_DAYS) как вторая линия очистки.
+### 3. Хранилище
+
+S3 не нужен: артефакты лежат на PVC `shorts-artifacts` (20Gi, local-path, rpi-node-3), бэкапы БД — на PVC
+`shorts-backups` на rpi2. Готовые ролики удаляются через `ARTIFACT_RETENTION_DAYS` (14) — они уже на YouTube.
 
 ### 4. Кластер (k3s + Argo CD)
 
 ```bash
 export KUBECONFIG=~/.kube/homelab.yaml
 cp shorts/.env.example secrets/shorts.env      # заполнить; secrets/ в .gitignore
-GHCR_TOKEN=<PAT read:packages> scripts/create-shorts-secrets.sh secrets/shorts.env
+GHCR_TOKEN=<PAT read:packages> scripts/create-shorts-secrets.sh secrets/shorts.env   # YOUTUBE_TOKEN_FILE подхватится сам
 # Application apps/shorts.yaml подхватывается root app (app-of-apps); если root ещё не применён:
 kubectl apply -f bootstrap/root-app.yaml
 ```
@@ -97,7 +107,8 @@ scripts/shorts-job.sh run --dry-run     # весь путь до validated, бе
 scripts/shorts-job.sh status
 ```
 
-Без `NIM_VIDEO_URL` и бюджета генерации dry-run остановится на `scripted` с причиной — это ожидаемо.
+Без `REPLICATE_API_TOKEN` dry-run остановится на `discovered` с причиной `configuration: text provider…`.
+Dry-run тратит деньги на Replicate (сценарий, видео, озвучка) — не загружает только на YouTube.
 
 ## Приватный smoke-test
 
@@ -106,7 +117,7 @@ scripts/shorts-job.sh status
 ```bash
 set -a; . ../secrets/shorts.env; set +a
 .venv/bin/shorts doctor --live                                  # /v1/models, 1 текстовый запрос (8 токенов), health генератора, videos.list (1 unit), OAuth + канал
-BUDGET_VIDEO_REQUESTS_PER_DAY=1 .venv/bin/shorts smoke-test --i-accept-cost   # ОДНА платная генерация, 25 кадров 256_9_16
+BUDGET_VIDEO_REQUESTS_PER_DAY=1 .venv/bin/shorts smoke-test --i-accept-cost --resolution 480p   # ОДНА платная генерация (~$0.05)
 DRY_RUN=false AUTO_PUBLISH=false PUBLISH_MADE_FOR_KIDS=false BUDGET_VIDEO_REQUESTS_PER_DAY=6 .venv/bin/shorts run
 .venv/bin/shorts status <job>                                   # до published; видео приватное
 ```

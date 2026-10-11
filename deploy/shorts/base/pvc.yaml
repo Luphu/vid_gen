@@ -1,0 +1,21 @@
+# local-path volumes live on one node's SD card (WaitForFirstConsumer: bound where the first pod runs).
+# The overlay pins every consumer, so artifacts and DB share rpi-node-3 and backups sit on a different node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shorts-artifacts
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: { storage: 20Gi }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shorts-backups
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: { storage: 5Gi }

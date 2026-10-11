@@ -1,6 +1,10 @@
 # Возможности внешних сервисов (проверка до реализации)
 
 Дата проверки: **2026-10-11**. Источники перечислены у каждого раздела.
+
+> **Итог второй проверки (2026-10-11, вечер):** production-провайдер — **Replicate** (§7): текст, видео и TTS.
+> NVIDIA trial используется только для внутренней оценки: условия trial запрещают использование сгенерированного
+> контента в production (§2). `wan2.2-animate-2-14b` не подходит (§1.6).
 Обозначения:
 
 * **[проверено]** — подтверждено запросом из этой рабочей среды (без API key, только публичные данные);
@@ -85,6 +89,14 @@
   и прописать в `NIM_VIDEO_URL`; (б) self-hosted NIM `nvcr.io/nim/nvidia/cosmos3-generator…` на внешнем GPU
   (не на Raspberry Pi), `NIM_VIDEO_URL=https://<gpu-host>/v1/infer`; (в) другой генератор — новый адаптер.
 
+### 1.6 `wan-ai/wan2.2-animate-2-14b` — не подходит
+
+Страница [build.nvidia.com](https://build.nvidia.com/wan-ai/wan2.2-animate-2-14b) помечена **Downloadable** (нет
+бесплатного hosted endpoint), «API Reference» ведёт на self-hosted NIM (`POST /v1/infer` в своём контейнере,
+GPU Hopper/Blackwell/Lovelace). Задача модели — анимация персонажа: **референсное изображение + управляющее видео**
+→ видео без звука ([Visual GenAI NIM models](https://docs.nvidia.com/nim/visual-genai/latest/models.html)).
+Это не text-to-video и требует чужого/своего «ведущего» видео, поэтому в пайплайн не включена.
+
 ### 1.4 Озвучка (TTS)
 
 Модель видео звук не генерирует. Hosted TTS NVIDIA (Riva/Magpie) использует **gRPC** с function-id; в этом MVP
@@ -102,9 +114,11 @@
   Cosmos3 — OpenMDW-1.1; контейнер NIM — NVIDIA Software License Agreement + Product-Specific Terms. **[проверено]** текстом страницы.
 * Диалог «Before You Use AI Models» на build.nvidia.com сообщает, что ввод и вывод trial-сервиса записываются
   NVIDIA и не следует отправлять конфиденциальные/персональные данные. Диалог в этой сессии **не принимался**.
-* Допустимость **production/коммерческого использования** trial-endpoint и результатов: полный текст API Trial ToS
-  получить не удалось → **[не подтверждено]**. Перед автопубликацией прочитайте условия в своём аккаунте NVIDIA.
-  По этой причине `AUTO_PUBLISH=false` по умолчанию, а включение требует `PUBLISH_CONSENT_*`.
+* **[проверено]** [NVIDIA API Trial Terms of Service (PDF)](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf):
+  п. 1.2 — доступ «for limited trial purposes only and without use of the API Service or Generated Content in
+  production»; п. 1.4 — без подписки «only for internal testing and evaluation purposes, not in production».
+  Публикация роликов и сценариев на канал — production. Поэтому сценарии, видео и озвучка для публикации идут
+  через Replicate; NVIDIA trial — только `doctor`/эксперименты.
 * Квоты/кредиты trial: в документации для конкретного ключа не указаны; учёт ведётся локально
   (`budget_ledger`), лимиты задаются в конфигурации. 429 обрабатывается с `Retry-After`.
 
@@ -187,3 +201,36 @@ YouTube Data API **не отдаёт** MP4, аудио или субтитры �
 * Квоты NVIDIA trial для вашего аккаунта.
 * OAuth-клиент, канал, режим аудита проекта Google Cloud.
 * S3-хранилище (endpoint, bucket, lifecycle).
+
+## 7. Replicate (production-провайдер)
+
+HTTP API ([reference](https://replicate.com/docs/reference/http), проверено 2026-10-11): `Authorization: Bearer r8_…`;
+`POST /v1/models/{owner}/{name}/predictions` с `{"input": …}`, `Prefer: wait=1..60`; `GET /v1/predictions/{id}`;
+статусы `starting|processing|succeeded|failed|canceled`; выходные файлы — HTTPS на `replicate.delivery`, требуют
+Authorization; **входы/выходы API-предсказаний удаляются через 1 час** — код скачивает результат сразу.
+Лимит создания предсказаний 600/мин; 429 содержит подсказку ожидания. Идемпотентность не документирована →
+таймаут на `create` = `generation_unknown`, известный `id` позволяет восстановить результат опросом.
+
+| Роль | Модель | Схема (со страницы API модели) | Цена / условия на странице |
+|---|---|---|---|
+| Видео | `wan-video/wan-2.2-t2v-fast` | `prompt`, `num_frames` 81–121, `aspect_ratio` `9:16`, `resolution` `480p`/`720p`, `frames_per_second` 5–30, `interpolate_output`, `go_fast`, `seed`; выход — uri MP4 | $0.05 за видео 480p, $0.10 за 720p; «Commercial use» |
+| Текст | `qwen/qwen3-235b-a22b-instruct-2507` | `prompt`, `max_tokens` ≤ 16384, `temperature`; выход — `string[]` | цена «by multiple properties»; лицензия модели — по ссылке License |
+| TTS | `minimax/speech-02-turbo` | `text` ≤ 10 000, `voice_id` (есть `Russian_*`), `speed`, `audio_format`, `sample_rate`, `language_boost`; выход — uri | $0.06 за 1000 входных токенов; «Commercial use» |
+
+Сцена: 81–121 кадр при 16 fps = 5,1–7,6 с (интерполяция до 30 fps). Ролик 15–30 с = 3–5 сцен.
+Оценка: 5 роликов/день × ~4 сцены × $0.10 ≈ **$2/день** на видео (720p) + текст и TTS (центы). Цены
+меняются — сверяйте со страницами моделей. Лицензию Qwen3 проверьте по ссылке License на странице модели.
+
+## 8. YouTube: частота загрузок и монетизация
+
+* Лимита «роликов в день» в правилах монетизации нет ([channel monetization policies](https://support.google.com/youtube/answer/1311392)).
+  Риск не в частоте, а в политике **inauthentic content** (с 15.07.2025): «repetitive or mass-produced» контент,
+  «looks like it's made with a template», «AI-generated content made with generic or unoriginal templates» —
+  не монетизируется, оценивается на уровне канала. Поэтому: ротация форматов (`CONTENT_FORMATS`), озвучка
+  с объяснением, проверка оригинальности, ручной просмотр первых роликов. 5/день — допустимо технически,
+  но шаблонность при таком объёме — главный риск; начать с 1–2/день и смотреть на реакцию.
+* **Made for kids**: только контекстная реклама, без персонализации, без комментариев
+  ([ads on made-for-kids](https://support.google.com/youtube/answer/9713557)). Выбрано: контент для общей
+  аудитории 13+, `PUBLISH_MADE_FOR_KIDS=false`. Метка обязана соответствовать реальному содержанию: если ролики
+  фактически адресованы детям, YouTube требует отметку «для детей» независимо от настройки.
+* Квота API: `videos.insert` — 100 вызовов/сутки (отдельный bucket), 5/день укладываются.

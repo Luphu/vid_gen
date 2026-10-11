@@ -48,7 +48,7 @@ class MockVideo:
 
     def generate(self, req: VideoRequest, out: Path, on_submitted=None) -> str | None:
         if self.budget is not None:  # same accounting as the real adapter
-            self.budget.reserve("nim_video")
+            self.budget.reserve("video")
         self.calls += 1
         rid = f"mock-req-{self.calls}"
         action = self.script.pop(0) if self.script else "ok"

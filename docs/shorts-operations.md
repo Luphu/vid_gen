@@ -3,13 +3,15 @@
 ## Архитектура
 
 ```
-CronJob shorts-pipeline (1×/сутки, Forbid, backoffLimit 0)
+CronJob shorts-pipeline (5×/сутки 9–21 Asia/Tbilisi, по ролику за запуск, Forbid, backoffLimit 0)
   └─ shorts run ── lease "pipeline" в PostgreSQL (одно видео одновременно)
-       discover (YouTube Data API) → analyze (NIM text/vision, ReferenceMediaSource)
-       → script (NIM text) → generate (Cosmos3 /v1/infer) → render (FFmpeg) → validate (ffprobe/QC)
+       discover (YouTube Data API) → analyze (Replicate text, ReferenceMediaSource)
+       → script (Replicate Qwen3) → generate (Replicate Wan 2.2) → TTS (Replicate MiniMax)
+       → render (FFmpeg) → validate (ffprobe/QC)
        → upload (YouTube resumable) → publish (processing status)
 StatefulSet shorts-postgres (1 реплика, local-path PVC на rpi-node-3)
-CronJob shorts-purge, shorts-db-backup → S3
+PVC shorts-artifacts 20Gi (rpi-node-3): /data/storage/jobs/<job>/…
+CronJob shorts-purge; shorts-db-backup → PVC shorts-backups на rpi2
 ```
 
 Нет Redis/Kafka/Temporal/Argo Workflows: очередь — таблица `jobs`, блокировка — таблица `locks`,
@@ -29,7 +31,7 @@ CronJob shorts-purge, shorts-db-backup → S3
 | `failed` | отклонено оператором или нет данных кандидата | — |
 
 Повтор этапа: `shorts retry <job> --stage analyze|script|generate|render|validate|upload|publish`,
-затем `shorts run --job <job>`. Успешно сгенерированные сцены (`external_ops.status=succeeded` + файл в S3)
+затем `shorts run --job <job>`. Успешно сгенерированные сцены (`external_ops.status=succeeded` + файл в хранилище артефактов)
 не генерируются повторно. После `uploaded` повтор ранних этапов запрещён (защита от дубликата).
 
 ## Бюджет
@@ -37,8 +39,9 @@ CronJob shorts-purge, shorts-db-backup → S3
 * Лимиты в `BUDGET_*` (ConfigMap), учёт в `budget_ledger` по суткам: NVIDIA — UTC, YouTube — Pacific Time.
 * Единица резервируется **до** запроса и не возвращается при ошибке (консервативно).
 * Генерация видео выключена, пока `BUDGET_VIDEO_REQUESTS_PER_DAY=0` (по умолчанию).
-* Расчёт на ролик: 15–30 с / ≤ 8,2 с на сцену (720p, 24 fps) → 3–4 запроса генерации + ≤ 1 повтор на сцену
-  при повреждённом результате → `BUDGET_VIDEO_REQUESTS_PER_JOB=6`.
+* Расчёт на ролик: 15–30 с / ≤ 7,6 с на сцену (Wan 2.2: 121 кадр при 16 fps) → 3–5 запросов генерации
+  + ≤ 1 повтор на сцену → `BUDGET_VIDEO_REQUESTS_PER_JOB=6`; на сутки при 5 роликах — `BUDGET_VIDEO_REQUESTS_PER_DAY=30`
+  (≈ $3 максимум при $0.10/клип 720p).
 * YouTube на ролик: `search.list` × (ключевые слова × страницы), `videos.list` 1–2 units, `videos.insert` 1 вызов,
   `channels.list`/`videos.list` для проверки канала и статуса — единицы.
 * Стоимость кредитов NVIDIA в деньгах не известна коду; смотрите кабинет NVIDIA.
@@ -60,28 +63,32 @@ rpi-node-3 481Mi. Поэтому PostgreSQL и пайплайн — на rpi-nod
 Аппаратного H.264-кодировщика у Pi 5 нет; используется libx264 `-preset veryfast`, `-threads 2`.
 Временные файлы: emptyDir `/work` ≤ 4Gi, приложение отказывается работать при `MAX_WORK_DIR_BYTES` (3 GiB).
 
-## PostgreSQL: привязка, отсутствие HA, бэкап
+## PostgreSQL и артефакты: привязка, отсутствие HA, бэкап
 
-* Один экземпляр, PVC `local-path` на SD-карте `rpi-node-3`; StatefulSet закреплён `nodeSelector`.
-* При отказе rpi-node-3 пайплайн остановлен до восстановления ноды или БД. Это осознанно (без HA).
-* `shorts-db-backup` ежедневно: `pg_dump -Fc` → `s3://$S3_BUCKET/${S3_PREFIX}backups/YYYY-MM-DD/shorts.dump`,
-  хранение `BACKUP_RETENTION_DAYS` (30). Потеря данных при отказе — до 24 ч состояния; артефакты в S3 остаются.
+* PostgreSQL и `shorts-artifacts` — `local-path` на SD-карте `rpi-node-3`; StatefulSet и CronJob'ы
+  pipeline/purge закреплены `nodeSelector`. S3 не используется (его нет); код поддерживает S3 на будущее.
+* При отказе rpi-node-3 пайплайн стоит до восстановления ноды. Без HA — осознанно.
+* `shorts-db-backup` ежедневно 03:10: `pg_dump -Fc` → проверка `pg_restore --list` → PVC `shorts-backups`
+  на **rpi2** (другая нода), хранение 14 дней. Потеря при отказе rpi-node-3 — до 24 ч состояния; ролики
+  в `shorts-artifacts` (готовые видео — уже на YouTube) теряются вместе с нодой.
+* Защиты от отказа SD-карты rpi2 нет; для внешней копии периодически копируйте файл к себе:
+  `kubectl -n shorts cp` из пода бэкапа или `ssh luphu@192.168.100.72` + `/var/lib/rancher/k3s/storage/`.
 
-Восстановление на новую ноду:
+Восстановление БД на новую ноду:
 
 ```bash
 export KUBECONFIG=~/.kube/homelab.yaml
 kubectl -n shorts scale statefulset shorts-postgres --replicas=0
 kubectl -n shorts delete pvc data-shorts-postgres-0          # ТОЛЬКО если старая нода потеряна
-# поменять nodeSelector в deploy/shorts/overlays/k3s, merge → Argo CD создаст пустую БД
+# при необходимости поменять nodeSelector в deploy/shorts/overlays/k3s, merge → Argo CD создаст пустую БД
 kubectl -n shorts scale statefulset shorts-postgres --replicas=1
-aws s3 cp s3://$S3_BUCKET/shorts/backups/<date>/shorts.dump ./shorts.dump --endpoint-url "$S3_ENDPOINT_URL"
-kubectl -n shorts cp ./shorts.dump shorts-postgres-0:/tmp/shorts.dump
-kubectl -n shorts exec shorts-postgres-0 -- pg_restore --clean --if-exists --no-owner -U shorts -d shorts /tmp/shorts.dump
+# под с доступом к бэкапам (на rpi2):
+kubectl -n shorts run restore --rm -it --image=postgres:17.6-alpine --overrides='{"spec":{"nodeSelector":{"kubernetes.io/hostname":"rpi2"},"volumes":[{"name":"b","persistentVolumeClaim":{"claimName":"shorts-backups"}}],"containers":[{"name":"restore","image":"postgres:17.6-alpine","stdin":true,"tty":true,"command":["sh"],"volumeMounts":[{"name":"b","mountPath":"/backup"}],"envFrom":[{"secretRef":{"name":"shorts-db"}}]}]}}'
+#   внутри: pg_restore --clean --if-exists --no-owner -d "$DATABASE_URL" /backup/shorts-<date>.dump
 ```
 
-После восстановления запустить `shorts review`: задания в `generation_unknown`/`upload_unknown` разрешаются
-вручную, а `uploaded` после бэкапа может отсутствовать в БД — проверьте канал перед повтором загрузки.
+После восстановления — `scripts/shorts-job.sh review`: задания в `generation_unknown`/`upload_unknown`
+разрешаются вручную; `uploaded` после бэкапа может отсутствовать в БД — проверьте канал перед повтором загрузки.
 
 ## Секреты
 
@@ -97,7 +104,8 @@ secrets/shorts.env`. Пароль PostgreSQL и `UPLOAD_URI_KEY` генерир�
 
 | Симптом | Причина / действие |
 |---|---|
-| `video generator endpoint not configured` | `NIM_VIDEO_URL` пуст — см. docs/capabilities.md §1.3 |
+| `video generator endpoint not configured` / `text provider not configured` | нет `REPLICATE_API_TOKEN` (или `NIM_VIDEO_URL` при VIDEO_PROVIDER=nvidia) |
+| `replicate …: output already deleted (kept 1 hour)` | восстановление позже часа невозможно: `resolve-op … --note` и повтор (платно) |
 | `budget for nim_video is 0` | задайте `BUDGET_VIDEO_REQUESTS_PER_DAY` |
 | `HTTP 401/403 (check API key / entitlement)` | ключ NVIDIA, доступ к модели; не повторяется автоматически |
 | `HTTP 404` от NIM | модель/URL недоступны для ключа; `shorts doctor --live` |

@@ -16,41 +16,45 @@ configMapGenerator:
       - TREND_WINDOW_HOURS=72
       - TREND_MAX_RESULTS=25
       - CONTENT_LANGUAGE=ru
-      - NIM_TEXT_MODEL=nvidia/nemotron-3-super-120b-a12b
-      - NIM_VISION_MODEL=nvidia/cosmos-reason2-8b
-      - NIM_VIDEO_RESOLUTION=720_9_16
-      - NIM_VIDEO_FPS=24
-      - NIM_VIDEO_MAX_FRAMES=197
+      # Replicate models (commercial use per model page, checked 2026-10-11)
+      - REPLICATE_TEXT_MODEL=qwen/qwen3-235b-a22b-instruct-2507
+      - REPLICATE_VIDEO_MODEL=wan-video/wan-2.2-t2v-fast
+      - REPLICATE_VIDEO_RESOLUTION=720p
+      - REPLICATE_TTS_MODEL=minimax/speech-02-turbo
+      - REPLICATE_TTS_VOICE=Russian_ReliableMan
       - TARGET_MIN_S=15
       - TARGET_MAX_S=30
-      # S3-compatible endpoint (not a secret). Example: Yandex Object Storage.
-      - S3_ENDPOINT_URL=https://storage.yandexcloud.net
-      - S3_REGION=ru-central1
-      - S3_BUCKET=CHANGE-ME-shorts-artifacts
-      - S3_PREFIX=shorts/
+      # Channel @whale_kiddo; content is general audience 13+, not made for kids (monetization)
+      - YOUTUBE_CHANNEL_ID=UCGakgXaB9bPT374KLj1G0Xw
+      - PUBLISH_CONSENT_CHANNEL_ID=UCGakgXaB9bPT374KLj1G0Xw
+      - PUBLISH_MADE_FOR_KIDS=false
+      - PUBLISH_PRIVACY=private
+      # 5 videos/day: 5 scheduled runs, one video each; ~4 scenes/video + retries
+      - DAILY_VIDEO_LIMIT=5
+      - PUBLISH_DAILY_LIMIT=5
+      - BUDGET_VIDEO_REQUESTS_PER_DAY=30
+      - BUDGET_TEXT_REQUESTS_PER_DAY=60
+      - BUDGET_TTS_REQUESTS_PER_DAY=40
+      - BUDGET_YT_SEARCH_CALLS_PER_DAY=20
 patches:
-  # PostgreSQL data lives on rpi-node-3's SD card (most free RAM; no control plane, no Argo CD).
+  # PostgreSQL and the artifacts PVC live on rpi-node-3 (most free RAM; no control plane, no Argo CD).
   - target: { kind: StatefulSet, name: shorts-postgres }
     patch: |-
       - op: add
         path: /spec/template/spec/nodeSelector
         value: { kubernetes.io/hostname: rpi-node-3 }
-  # Heavy pipeline pods prefer the same node and must stay off the control plane (rpi1).
-  - target: { kind: CronJob }
+  # Pipeline and purge mount the artifacts PVC -> must run where it is bound.
+  - target: { kind: CronJob, name: "shorts-(pipeline|purge)" }
     patch: |-
       - op: add
-        path: /spec/jobTemplate/spec/template/spec/affinity
-        value:
-          nodeAffinity:
-            requiredDuringSchedulingIgnoredDuringExecution:
-              nodeSelectorTerms:
-                - matchExpressions:
-                    - { key: homelab/role, operator: In, values: [worker] }
-            preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                preference:
-                  matchExpressions:
-                    - { key: kubernetes.io/hostname, operator: In, values: [rpi-node-3] }
+        path: /spec/jobTemplate/spec/template/spec/nodeSelector
+        value: { kubernetes.io/hostname: rpi-node-3 }
+  # Backups go to a PVC on rpi2, i.e. off the DB node.
+  - target: { kind: CronJob, name: shorts-db-backup }
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/nodeSelector
+        value: { kubernetes.io/hostname: rpi2 }
   # Enable the daily run only after `shorts doctor` reports no blockers:
   # - target: { kind: CronJob, name: shorts-pipeline }
   #   patch: |-
