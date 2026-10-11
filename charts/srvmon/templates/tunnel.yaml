@@ -1,0 +1,33 @@
+{{- if .Values.tunnel.enabled }}
+# Обратный SSH-туннель: vmagent на сервере пишет в 127.0.0.1:{{ .Values.tunnel.remotePort }} -> srvmon-vm:8428.
+# Ровно одна реплика: две держали бы один порт на сервере.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srvmon-tunnel
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: srvmon-tunnel } }
+  template:
+    metadata:
+      labels: { app: srvmon-tunnel }
+    spec:
+      {{- include "srvmon.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: tunnel
+          image: {{ .Values.images.tunnel }}
+          imagePullPolicy: Always
+          env:
+            - { name: SERVER, value: {{ .Values.tunnel.server | quote }} }
+            - { name: TUNNEL_REMOTE, value: "127.0.0.1:{{ .Values.tunnel.remotePort }}" }
+            - { name: TUNNEL_TARGET, value: "srvmon-vm.{{ .Release.Namespace }}.svc.cluster.local:8428" }
+          resources: {{- toYaml .Values.tunnel.resources | nindent 12 }}
+          securityContext: { allowPrivilegeEscalation: false, runAsNonRoot: true }
+          volumeMounts:
+            - { name: ssh, mountPath: /secrets, readOnly: true }
+      volumes:
+        - name: ssh
+          secret: { secretName: srvmon-ssh, defaultMode: 0444 }
+{{- end }}

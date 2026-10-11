@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: srvmon-vm
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  selector: { app: srvmon-vm }
+  ports: [{ name: http, port: 8428 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: srvmon-vm
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  serviceName: srvmon-vm
+  replicas: 1
+  selector: { matchLabels: { app: srvmon-vm } }
+  template:
+    metadata:
+      labels: { app: srvmon-vm }
+      annotations:
+        checksum/promscrape: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
+    spec:
+      {{- include "srvmon.pin" . | nindent 6 }}
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.victoriametrics.migrateFromHostPath }}
+      initContainers:
+        - name: migrate
+          image: {{ $.Values.images.busybox }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              if [ -d /storage/data ]; then echo "storage not empty, skip"; exit 0; fi
+              if [ ! -d /old/data ]; then echo "no old data, skip"; exit 0; fi
+              echo "copying $(du -sh /old | cut -f1) from {{ . }}"
+              cp -a /old/. /storage/ && echo done
+          volumeMounts:
+            - { name: data, mountPath: /storage }
+            - { name: old, mountPath: /old, readOnly: true }
+      {{- end }}
+      containers:
+        - name: victoriametrics
+          image: {{ .Values.images.victoriametrics }}
+          args:
+            - -httpListenAddr=:8428
+            - -httpAuth.username=srvmon
+            - -httpAuth.password=file:///etc/vm/secret/password
+            - -storageDataPath=/storage
+            - -retentionPeriod={{ .Values.victoriametrics.retention }}
+            # данные досылаются из буфера vmagent задним числом — кэш запросов отключён
+            - -search.disableCache
+            - -dedup.minScrapeInterval=1ms
+            - -promscrape.config=/etc/vm/promscrape.yml
+            - -promscrape.config.strictParse
+            - -promscrape.configCheckInterval=1m
+          ports: [{ name: http, containerPort: 8428 }]
+          # /health тоже под basic auth — проверяем TCP
+          readinessProbe: { tcpSocket: { port: http }, periodSeconds: 10 }
+          livenessProbe:  { tcpSocket: { port: http }, periodSeconds: 30, failureThreshold: 5, initialDelaySeconds: 30 }
+          resources: {{- toYaml .Values.victoriametrics.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /storage }
+            - { name: config, mountPath: /etc/vm/promscrape.yml, subPath: promscrape.yml }
+            - { name: auth, mountPath: /etc/vm/secret, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: srvmon-promscrape }
+        - name: auth
+          secret: { secretName: srvmon-vm-auth }
+        {{- with .Values.victoriametrics.migrateFromHostPath }}
+        - name: old
+          hostPath: { path: {{ . }}, type: Directory }
+        {{- end }}
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources: { requests: { storage: {{ .Values.victoriametrics.storageSize }} } }

@@ -1,0 +1,58 @@
+# Argo CD в минимальном профиле для 3× Raspberry Pi 5 (4 ГБ).
+# Отключено всё, что не нужно одному пользователю в LAN: Dex (SSO), notifications, ApplicationSet.
+# Включить при необходимости: applicationSet.replicas: 1, notifications.enabled: true.
+
+global:
+  # Argo CD не ставим на control-plane: rpi1 уже несёт k3s server и srvmon.
+  affinity:
+    nodeAffinity:
+      type: soft
+  nodeSelector:
+    homelab/role: worker
+
+configs:
+  params:
+    server.insecure: true          # TLS не терминируем: доступ только из LAN через Traefik (HTTP)
+    controller.status.processors: 5
+    controller.operation.processors: 2
+    reposerver.parallelism.limit: 1
+  cm:
+    timeout.reconciliation: 180s
+    admin.enabled: true
+    # Скрыть шумные ресурсы, которые не нужны в UI
+    resource.exclusions: |
+      - apiGroups: ["discovery.k8s.io"]
+        kinds: ["EndpointSlice"]
+      - apiGroups: [""]
+        kinds: ["Endpoints"]
+
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 0
+
+controller:
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits:   { memory: 512Mi }
+
+repoServer:
+  resources:
+    requests: { cpu: 20m, memory: 96Mi }
+    limits:   { memory: 384Mi }
+
+server:
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits:   { memory: 192Mi }
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hostname: argocd.192.168.100.71.sslip.io
+
+redis:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits:   { memory: 96Mi }

@@ -1,0 +1,12 @@
+{{ define "srvmon.tg" -}}
+{{ if eq .Status "firing" }}🔴 <b>ТРЕВОГА</b>{{ else }}✅ <b>РЕШЕНО</b>{{ end }} · {{ .CommonLabels.alertname }}
+{{ range .Alerts }}
+<b>{{ .Annotations.summary }}</b>
+{{ .Annotations.description }}
+{{- if .Labels.host }}
+Хост: {{ .Labels.host }}{{ end }}
+Начало: {{ .StartsAt.Local.Format "2006-01-02 15:04" }}
+{{- if eq .Status "resolved" }}
+Окончание: {{ .EndsAt.Local.Format "2006-01-02 15:04" }}{{ end }}
+{{ end }}
+{{- end }}

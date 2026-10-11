@@ -1,0 +1,58 @@
+{{- if .Values.report.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: srvmon-reports
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources: { requests: { storage: 1Gi } }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: srvmon-report
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.report.schedule | quote }}
+  timeZone: {{ .Values.report.timeZone }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 21600   # аналог Persistent=true: догнать пропущенный запуск в течение 6 ч
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0                # при ошибке report.py сам шлёт алерт; повтор = дубль в Telegram
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels: { app: srvmon-report }
+        spec:
+          restartPolicy: Never
+          {{- include "srvmon.pin" . | nindent 10 }}
+          {{- include "srvmon.pullSecrets" . | nindent 10 }}
+          securityContext: { fsGroup: 10001 }
+          containers:
+            - name: report
+              image: {{ .Values.images.report }}
+              imagePullPolicy: Always
+              env:
+                - { name: VM_URL, value: "http://srvmon-vm:8428" }
+                - { name: VM_AUTH_USER, valueFrom: { secretKeyRef: { name: srvmon-vm-auth, key: username } } }
+                - { name: VM_AUTH_PASSWORD, valueFrom: { secretKeyRef: { name: srvmon-vm-auth, key: password } } }
+                - { name: TG_BOT_TOKEN, valueFrom: { secretKeyRef: { name: srvmon-telegram, key: bot_token } } }
+                - { name: TG_CHAT_ID, valueFrom: { secretKeyRef: { name: srvmon-telegram, key: chat_id } } }
+                - { name: HC_DAILY_REPORT_URL, valueFrom: { secretKeyRef: { name: srvmon-report, key: HC_DAILY_REPORT_URL, optional: true } } }
+                - { name: ALERTMANAGER_URL, value: "http://srvmon-alertmanager:9093" }
+                - { name: OUT_DIR, value: /reports }
+                {{- range $k, $v := .Values.report.env }}
+                - { name: {{ $k }}, value: {{ $v | quote }} }
+                {{- end }}
+              resources: {{- toYaml .Values.report.resources | nindent 16 }}
+              volumeMounts:
+                - { name: reports, mountPath: /reports }
+          volumes:
+            - name: reports
+              persistentVolumeClaim: { claimName: srvmon-reports }
+{{- end }}

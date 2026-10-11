@@ -1,0 +1,25 @@
+# Argo CD управляет собой: чарт из argo-helm, values — из этого репозитория.
+# prune выключен: ошибка в values не должна удалить сам Argo CD.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.10.2
+      helm:
+        releaseName: argocd
+        valueFiles: [$values/bootstrap/argocd-values.yaml]
+    - repoURL: git@github.com:Luphu/nim.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: { prune: false, selfHeal: true }
+    syncOptions: [ServerSideApply=true]

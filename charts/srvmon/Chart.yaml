@@ -1,0 +1,6 @@
+apiVersion: v2
+name: srvmon
+description: Мониторинг сервера в Yandex Cloud — VictoriaMetrics, vmalert, Alertmanager→Telegram, SSH-туннель, ежедневный xlsx-отчёт
+type: application
+version: 0.1.0
+appVersion: "v1.152.0"

@@ -1,0 +1,129 @@
+# Перенесено из Ansible-развёртывания srvmon (rpi1, docker compose).
+# Тексты без символов < и > — сообщения уходят в Telegram с parse_mode=HTML.
+groups:
+  - name: transport
+    rules:
+      - alert: ServerNoData
+        expr: absent_over_time(up{job="server-node"}[10m])
+        labels: { severity: critical, host: server }
+        annotations:
+          summary: "Нет свежих данных с сервера более 10 минут"
+          description: "На RPI1 не приходят метрики сервера. Причины: туннель RPI1 (srvmon-tunnel), vmagent на сервере или сам сервер. Данные копятся в буфере vmagent и будут досланы. Ранбук: ServerNoData."
+      - alert: ServerNodeExporterDown
+        expr: up{job="server-node"} == 0
+        for: 5m
+        labels: { severity: critical, host: server }
+        annotations:
+          summary: "vmagent не может опросить node_exporter на сервере"
+          description: "up=0 для 127.0.0.1:9100. Проверить systemctl status node_exporter на сервере."
+      - alert: VmagentQueueGrowing
+        expr: max by (url) (vmagent_remotewrite_pending_data_bytes{job="server-vmagent"}) > 5e6
+        for: 10m
+        labels: { severity: warning, host: server }
+        annotations:
+          summary: "Растёт очередь vmagent ({{ $labels.url }})"
+          description: "В буфере {{ $value | humanize1024 }}Б (лимит 536871040 на адрес). url 1 = RPI1, 2 = RPI2. Проверить туннель соответствующей RPi."
+      - alert: VmagentQueueNearFull
+        expr: max by (url) (vmagent_remotewrite_pending_data_bytes{job="server-vmagent"}) > 400e6
+        labels: { severity: critical, host: server }
+        annotations:
+          summary: "Буфер vmagent почти заполнен ({{ $labels.url }})"
+          description: "{{ $value | humanize1024 }}Б из 536871040. При переполнении старые данные будут отброшены."
+      - alert: VmagentRemoteWriteErrors
+        expr: |
+          sum by (url) (rate(vmagent_remotewrite_retries_count_total{job="server-vmagent"}[5m])) > 0
+          or
+          sum by (url) (rate(vmagent_remotewrite_requests_total{job="server-vmagent", status_code!~"2.."}[5m])) > 0
+        for: 5m
+        labels: { severity: warning, host: server }
+        annotations:
+          summary: "Ошибки remote_write у vmagent ({{ $labels.url }})"
+          description: "vmagent не может отправить данные по адресу {{ $labels.url }} (1 = RPI1, 2 = RPI2): туннель, VictoriaMetrics или авторизация."
+      - alert: VmagentDataDropped
+        expr: |
+          sum(increase(vm_persistentqueue_bytes_dropped_total{job="server-vmagent"}[15m])) > 0
+          or
+          sum(increase(vmagent_remotewrite_packets_dropped_total{job="server-vmagent"}[15m])) > 0
+        labels: { severity: critical, host: server }
+        annotations:
+          summary: "vmagent отбросил данные"
+          description: "Буфер переполнен или запись отклонена — в данных будут пропуски. Ранбук: восстановление пропусков."
+
+  - name: anomaly
+    rules:
+      - alert: CpuOutOfRange
+        expr: |
+          (100 - avg(rate(node_cpu_seconds_total{job="server-node",mode="idle"}[5m])) * 100) < 0
+          or
+          (100 - avg(rate(node_cpu_seconds_total{job="server-node",mode="idle"}[5m])) * 100) > 100
+        labels: { severity: warning, host: server, component: anomaly }
+        annotations:
+          summary: "CPU load вне диапазона 0–100%"
+          description: "Значение: {{ $value | printf \"%.2f\" }}%."
+      - alert: RamOutOfRange
+        expr: |
+          ((1 - node_memory_MemAvailable_bytes{job="server-node"} / node_memory_MemTotal_bytes{job="server-node"}) * 100) < 0
+          or
+          ((1 - node_memory_MemAvailable_bytes{job="server-node"} / node_memory_MemTotal_bytes{job="server-node"}) * 100) > 100
+        labels: { severity: warning, host: server, component: anomaly }
+        annotations:
+          summary: "RAM used вне диапазона 0–100%"
+          description: "Значение: {{ $value | printf \"%.2f\" }}%."
+      - alert: RamZero
+        expr: ((1 - node_memory_MemAvailable_bytes{job="server-node"} / node_memory_MemTotal_bytes{job="server-node"}) * 100) == 0
+        for: 5m
+        labels: { severity: warning, host: server, component: anomaly }
+        annotations:
+          summary: "RAM used = 0%"
+          description: "Нереалистичное значение — вероятно, ошибка сбора."
+      - alert: MetricEmpty
+        expr: |
+          (
+            absent(node_cpu_seconds_total{job="server-node",mode="idle"})
+            or absent(node_memory_MemAvailable_bytes{job="server-node"})
+            or absent(node_memory_MemTotal_bytes{job="server-node"})
+            or absent(node_network_receive_bytes_total{job="server-node",device="eth0"})
+            or absent(node_disk_reads_completed_total{job="server-node"})
+          ) and on() (count(up{job="server-node"} == 1) > 0)
+        for: 5m
+        labels: { severity: warning, host: server, component: anomaly }
+        annotations:
+          summary: "Пустые/NaN значения ключевых метрик"
+          description: "Сервер отвечает, но часть метрик (CPU, RAM, сеть eth0 или диски) отсутствует."
+      - alert: CounterReset
+        expr: |
+          sum(resets({job="server-node", __name__=~"node_network_(receive|transmit)_bytes_total|node_disk_(reads|writes)_completed_total"}[10m])) > 0
+        labels: { severity: info, host: server, component: anomaly }
+        annotations:
+          summary: "Сброс счётчиков на сервере"
+          description: "Счётчики трафика/IOPS сбросились ({{ $value }} шт. за 10 мин) — обычно перезагрузка сервера или перезапуск node_exporter. Точки в отчёте будут помечены."
+      - alert: ZeroInboundTraffic
+        expr: rate(node_network_receive_bytes_total{job="server-node", device="eth0"}[5m]) == 0
+        for: 15m
+        labels: { severity: critical, host: server, component: anomaly }
+        annotations:
+          summary: "Нулевой входящий трафик на eth0 более 15 минут"
+          description: "Внешний интерфейс сервера не принимает трафик."
+      - alert: ServerDiskAlmostFull
+        expr: (1 - node_filesystem_avail_bytes{job="server-node",mountpoint="/"} / node_filesystem_size_bytes{job="server-node",mountpoint="/"}) * 100 > 95
+        for: 10m
+        labels: { severity: critical, host: server }
+        annotations:
+          summary: "Диск сервера заполнен более чем на 95%"
+          description: "Занято {{ $value | printf \"%.1f\" }}%. Буфер vmagent тоже хранится на этом диске."
+
+  - name: rpi
+    rules:
+      - alert: RpiDiskFull
+        expr: (1 - node_filesystem_avail_bytes{job="rpi-node",mountpoint="/"} / node_filesystem_size_bytes{job="rpi-node",mountpoint="/"}) * 100 > 85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Диск {{ $labels.host }} заполнен более чем на 85%"
+          description: "Занято {{ $value | printf \"%.1f\" }}%."
+      - alert: DailyReportMissing
+        expr: time() - max(srvmon_report_last_success_timestamp_seconds) > 26 * 3600
+        labels: { severity: critical, host: rpi1 }
+        annotations:
+          summary: "Ежедневный отчёт не отправлялся более 26 часов"
+          description: "Проверить journalctl -u srvmon-report на RPI1."

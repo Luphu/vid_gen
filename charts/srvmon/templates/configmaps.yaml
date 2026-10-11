@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srvmon-promscrape
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+data:
+  promscrape.yml: |
+    global:
+      scrape_interval: 1m
+      scrape_timeout: 30s
+    scrape_configs:
+      - job_name: rpi-node
+        static_configs:
+          {{- range $host, $ip := .Values.nodes }}
+          - targets: ["{{ $ip }}:9100"]
+            labels: { host: {{ $host }} }
+          {{- end }}
+      - job_name: rpi1-vm
+        basic_auth: { username: srvmon, password_file: /etc/vm/secret/password }
+        static_configs:
+          - targets: ["127.0.0.1:8428"]
+            labels: { host: {{ .Values.nodeName }} }
+      - job_name: vmalert
+        static_configs:
+          - targets: ["srvmon-vmalert:8880"]
+            labels: { host: {{ .Values.nodeName }} }
+      - job_name: alertmanager
+        static_configs:
+          - targets: ["srvmon-alertmanager:9093"]
+            labels: { host: {{ .Values.nodeName }} }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srvmon-rules
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+data:
+  srvmon.yml: |
+{{ .Files.Get "files/rules.yml" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: srvmon-alertmanager
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+data:
+  alertmanager.yml.in: |
+{{ .Files.Get "files/alertmanager.yml" | indent 4 }}
+  telegram.tmpl: |
+{{ .Files.Get "files/telegram.tmpl" | indent 4 }}

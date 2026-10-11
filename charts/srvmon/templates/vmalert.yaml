@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: srvmon-vmalert
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  selector: { app: srvmon-vmalert }
+  ports: [{ name: http, port: 8880 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srvmon-vmalert
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: srvmon-vmalert } }
+  template:
+    metadata:
+      labels: { app: srvmon-vmalert }
+    spec:
+      {{- include "srvmon.pin" . | nindent 6 }}
+      containers:
+        - name: vmalert
+          image: {{ .Values.images.vmalert }}
+          args:
+            - -httpListenAddr=:8880
+            - -rule=/etc/vmalert/rules/*.yml
+            - -configCheckInterval=1m
+            - -evaluationInterval={{ .Values.vmalert.evaluationInterval }}
+            {{- range list "datasource" "remoteWrite" "remoteRead" }}
+            - -{{ . }}.url=http://srvmon-vm:8428
+            - -{{ . }}.basicAuth.username=srvmon
+            - -{{ . }}.basicAuth.passwordFile=/etc/vm/secret/password
+            {{- end }}
+            - -notifier.url=http://srvmon-alertmanager:9093
+          ports: [{ name: http, containerPort: 8880 }]
+          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 10 }
+          livenessProbe:  { httpGet: { path: /health, port: http }, periodSeconds: 30, failureThreshold: 5 }
+          resources: {{- toYaml .Values.vmalert.resources | nindent 12 }}
+          volumeMounts:
+            - { name: rules, mountPath: /etc/vmalert/rules }
+            - { name: auth, mountPath: /etc/vm/secret, readOnly: true }
+      volumes:
+        - name: rules
+          configMap: { name: srvmon-rules }
+        - name: auth
+          secret: { secretName: srvmon-vm-auth }

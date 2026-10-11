@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: srvmon
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Luphu/nim.git
+    targetRevision: main
+    path: charts/srvmon
+    helm:
+      releaseName: srvmon
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: srvmon
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true]
+  # Secret'ы создаются вне Git (scripts/create-secrets.sh) и Argo CD ими не управляет.

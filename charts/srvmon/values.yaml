@@ -1,0 +1,74 @@
+# Все stateful-компоненты закреплены за одной нодой: тома local-path живут на её SD-карте.
+nodeName: rpi1
+
+images:
+  victoriametrics: victoriametrics/victoria-metrics:v1.152.0
+  vmalert: victoriametrics/vmalert:v1.152.0
+  alertmanager: prom/alertmanager:v0.34.1
+  nodeExporter: prom/node-exporter:v1.12.1
+  busybox: busybox:1.37
+  tunnel: ghcr.io/luphu/nim/srvmon-tunnel:latest
+  report: ghcr.io/luphu/nim/srvmon-report:latest
+imagePullSecrets: [ghcr-pull]
+
+# Секреты не хранятся в Git, создаются scripts/create-secrets.sh:
+#   srvmon-vm-auth   (username, password)
+#   srvmon-telegram  (bot_token, chat_id)
+#   srvmon-ssh       (server_key, known_hosts)
+#   srvmon-report    (HC_DAILY_REPORT_URL, может быть пустым)
+
+victoriametrics:
+  retention: 1y
+  storageSize: 5Gi
+  # Одноразовый перенос данных из docker-развёртывания: если том пуст, а каталог на ноде есть — копируем.
+  # После успешного переноса убрать (пустая строка).
+  migrateFromHostPath: /opt/srvmon/vm-data
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { memory: 512Mi }
+
+vmalert:
+  evaluationInterval: 1m
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits:   { memory: 128Mi }
+
+alertmanager:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits:   { memory: 128Mi }
+
+nodeExporter:
+  resources:
+    requests: { cpu: 10m, memory: 24Mi }
+    limits:   { memory: 64Mi }
+
+# Метрики нод кластера (job=rpi-node). Ключ — label host.
+nodes:
+  rpi1: 192.168.100.71
+  rpi2: 192.168.100.72
+  rpi3: 192.168.100.73
+
+tunnel:
+  enabled: true
+  server: ubuntu@89.169.147.238
+  remotePort: 18428       # на 127.0.0.1 сервера; туда пишет vmagent
+  resources:
+    requests: { cpu: 5m, memory: 8Mi }
+    limits:   { memory: 32Mi }
+
+report:
+  enabled: true
+  schedule: "59 19 * * *"
+  timeZone: Asia/Tbilisi
+  env:
+    SERVER_JOB: server-node
+    DISK_REGEX: '(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+)'
+    REPORT_TZ: Asia/Tbilisi
+    REPORT_DISPLAY_TZ: Europe/Moscow
+    WORK_START: "11:00"
+    WORK_END: "20:00"
+    WAIT_MAX_SEC: "600"
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { memory: 256Mi }

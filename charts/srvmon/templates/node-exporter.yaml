@@ -1,0 +1,34 @@
+# Метрики всех нод кластера. hostNetwork нужен для сетевых метрик хоста;
+# слушает IP ноды в LAN (127.0.0.1 недоступен из пода VictoriaMetrics).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: srvmon-node-exporter
+  labels: {{- include "srvmon.labels" . | nindent 4 }}
+spec:
+  selector: { matchLabels: { app: srvmon-node-exporter } }
+  template:
+    metadata:
+      labels: { app: srvmon-node-exporter }
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations: [{ operator: Exists }]
+      containers:
+        - name: node-exporter
+          image: {{ .Values.images.nodeExporter }}
+          args:
+            - --path.rootfs=/host
+            - --web.listen-address=$(HOST_IP):9100
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/(kubelet|rancher/k3s/agent/containerd))($|/)
+          env:
+            - name: HOST_IP
+              valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+          ports: [{ name: metrics, containerPort: 9100 }]
+          resources: {{- toYaml .Values.nodeExporter.resources | nindent 12 }}
+          securityContext: { readOnlyRootFilesystem: true }
+          volumeMounts:
+            - { name: root, mountPath: /host, readOnly: true, mountPropagation: HostToContainer }
+      volumes:
+        - name: root
+          hostPath: { path: / }
