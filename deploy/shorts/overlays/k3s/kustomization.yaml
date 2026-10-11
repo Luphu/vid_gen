@@ -5,7 +5,7 @@ resources:
 # Image pinned by digest. Updated by the "shorts" workflow through a pull request; Argo CD syncs after merge.
 images:
   - name: ghcr.io/luphu/nim/shorts
-    digest: sha256:215ca04f2e9fddf8687a8e442843f0a1400875b245129b29a934b444b74001f1
+    digest: sha256:2fd603a603533e50bf157a7227f65676aab24788fdfdef8fa57b962c2a1b4972
 configMapGenerator:
   - name: shorts-config
     behavior: merge
