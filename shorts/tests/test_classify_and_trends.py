@@ -101,3 +101,22 @@ def test_youtube_search_respects_quota_budget(store):
 
     with pytest.raises(BudgetExceeded):
         src.discover()
+
+
+def test_youtube_search_falls_back_to_oauth(store):
+    class Tok:
+        def headers(self):
+            return {"Authorization": "Bearer ya29.test-token"}
+
+    seen = []
+
+    def h(req):
+        seen.append(req.headers.get("Authorization"))
+        assert "X-Goog-Api-Key" not in req.headers
+        if req.url.path.endswith("/search"):
+            return httpx.Response(200, json={"items": [{"id": {"videoId": "vidAAAAAAA1"}}]})
+        return httpx.Response(200, json={"items": []})
+    s = load_settings({"TREND_KEYWORDS": "a", "TREND_REGION": "DE", "TREND_LANGUAGE": "de"})
+    YouTubeSearchSource(s, BudgetGuard(store, s.budget), httpx.Client(transport=httpx.MockTransport(h)),
+                        Tok()).discover()
+    assert seen and all(x == "Bearer ya29.test-token" for x in seen)

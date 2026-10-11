@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from ..budget import BudgetGuard
-from ..config import Settings
+from ..config import ConfigError, Settings
 from ..models import Candidate, SearchScope
 from ..net import ProviderError, RetryPolicy, send_with_retry
 from .classify import classify_ai_metadata, classify_format, parse_iso8601_duration
@@ -25,14 +25,21 @@ log = logging.getLogger(__name__)
 class YouTubeSearchSource:
     name = "youtube_data_api"
 
-    def __init__(self, s: Settings, budget: BudgetGuard, client: httpx.Client):
-        self.s, self.budget, self.http = s, budget, client
+    def __init__(self, s: Settings, budget: BudgetGuard, client: httpx.Client, tokens=None):
+        """Auth: API key if configured, otherwise the channel owner's OAuth token (youtube.readonly)."""
+        self.s, self.budget, self.http, self.tokens = s, budget, client, tokens
+
+    def _auth(self) -> dict:
+        if self.s.youtube_api_key:
+            # Key in a header, not the query string, so it never lands in URL logs.
+            return {"X-Goog-Api-Key": self.s.youtube_api_key.get_secret_value()}
+        if self.tokens is not None:
+            return self.tokens.headers()
+        raise ConfigError("missing configuration: YOUTUBE_API_KEY (or YouTube OAuth credentials)")
 
     def _get(self, path: str, params: dict, bucket: str) -> dict:
-        self.s.require("youtube_api_key")
+        hdr = self._auth()
         self.budget.reserve(bucket)
-        # Key in a header, not the query string, so it never lands in URL logs.
-        hdr = {"X-Goog-Api-Key": self.s.youtube_api_key.get_secret_value()}  # type: ignore[union-attr]
         resp = send_with_retry(lambda: self.http.get(f"{self.s.youtube_api_base}/{path}", params=params,
                                                       headers=hdr),
                                RetryPolicy(max_retries=3), what=f"youtube {path}")

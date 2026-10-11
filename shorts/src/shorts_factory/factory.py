@@ -42,7 +42,14 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
     else:
         from .trends.youtube import YouTubeSearchSource
 
-        d.trends = YouTubeSearchSource(s, budget, make_client(10, 30))
+        tokens = None
+        if not s.youtube_api_key and s.youtube_refresh_token and s.youtube_client_secret:
+            from .youtube.oauth import TokenProvider
+
+            tokens = TokenProvider(make_client(10, 30), s.youtube_token_url, s.youtube_client_id,
+                                   s.youtube_client_secret.get_secret_value(),
+                                   s.youtube_refresh_token.get_secret_value())
+        d.trends = YouTubeSearchSource(s, budget, make_client(10, 30), tokens)
 
     if s.provider_mode == "mock":
         from .providers.mock import MockChat, MockVideo, default_mock_responses
