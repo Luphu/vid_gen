@@ -177,6 +177,9 @@ _FORBIDDEN_IN_SCENE = re.compile(
 
 
 _CYRILLIC = re.compile(r"[\u0400-\u04FF]")
+_TEXT_PRONE = re.compile(
+    r"(?i)\b(screens?|displays?|monitors?|holograms?|holographic|schematics?|signs?|signage|posters?|billboards?|"
+    r"labels?|books?|newspapers?|badges?|name ?tags?|patches|logos?|banners?|scoreboards?|neon signs?)\b")
 
 
 def _english_only(v: str | None, field: str) -> str | None:
@@ -242,7 +245,14 @@ class Script(Strict):
     @field_validator("subject", "visual_style", "setting")
     @classmethod
     def _visual_fields_en(cls, v: str, info) -> str:
-        return _english_only(v, info.field_name)  # type: ignore[return-value]
+        _english_only(v, info.field_name)
+        stored = bool(info.context and info.context.get("stored"))
+        if info.field_name in ("subject", "setting") and not stored:  # generation-time rule only
+            m = _TEXT_PRONE.search(v)
+            if m:
+                raise ValueError(f"{info.field_name} must not contain {m.group(0)!r}: image models fill it with fake "
+                                 "lettering; describe props without screens, signs or printed items")
+        return v
 
     @field_validator("title")
     @classmethod
