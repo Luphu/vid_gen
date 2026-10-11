@@ -6,6 +6,7 @@ never "repaired" silently.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -142,14 +143,50 @@ class Analysis(Strict):
         return self
 
 
+# Text-to-video models generate every scene independently and cannot read text reliably:
+# references to other scenes, multi-panel layouts and any lettering produce garbage.
+_FORBIDDEN_IN_SCENE = re.compile(
+    r"(?i)\b(split[- ]screen|side[- ]by[- ]side|collage|before[- ]and[- ]after|diptych|"
+    r"the same|same (?:object|stone|item|subject)|previous scene|earlier scene|"
+    r"text|texts|caption|captions|subtitle|subtitles|letters?|words?|logo|logos|watermark|sign|signs|"
+    r"label|labels|title|typography)\b")
+
+
+_CYRILLIC = re.compile(r"[\u0400-\u04FF]")
+
+
+def _english_only(v: str | None, field: str) -> str | None:
+    if v and _CYRILLIC.search(v):
+        raise ValueError(f"{field} must be written in English (video models follow English prompts best)")
+    return v
+
+
 class Scene(Strict):
     index: int = Field(ge=0)
     duration_s: float = Field(gt=0.9, le=20)
-    generation_prompt: str = Field(min_length=20, max_length=2000)
+    # Scene-specific action, setting and camera only; subject and style are added by code.
+    generation_prompt: str = Field(min_length=20, max_length=700)
+    # How the recurring subject looks in THIS scene if it changed (English), e.g. "now melted into an ingot".
+    subject_state: str | None = Field(default=None, max_length=200)
     negative_prompt: str | None = Field(default=None, max_length=1000)
     narration: str = Field(default="", max_length=400)
     on_screen_text: str = Field(default="", max_length=80)
     important_region: Literal["center", "top", "bottom"] = "center"
+
+    @field_validator("generation_prompt")
+    @classmethod
+    def _video_safe(cls, v: str) -> str:
+        _english_only(v, "generation_prompt")
+        m = _FORBIDDEN_IN_SCENE.search(v)
+        if m:
+            raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: each scene is generated "
+                             "independently, as one continuous shot, without any lettering")
+        return v
+
+    @field_validator("subject_state")
+    @classmethod
+    def _state_en(cls, v: str | None) -> str | None:
+        return _english_only(v, "subject_state")
 
 
 class Disclosure(Strict):
@@ -163,12 +200,21 @@ class Script(Strict):
     target_audience: str = Field(min_length=3, max_length=200)
     language: str = Field(min_length=2, max_length=10)
     hook: str = Field(min_length=3, max_length=200)
+    # Canonical English description of the recurring main subject, repeated verbatim in every scene prompt.
+    subject: str = Field(min_length=15, max_length=400)
+    # One shared English visual style line (lighting, palette, lens, realism) for all scenes.
+    visual_style: str = Field(min_length=10, max_length=250)
     scenes: list[Scene] = Field(min_length=1, max_length=10)
     narration: str = Field(default="", max_length=2000)
     title: str = Field(min_length=3, max_length=100)
     description: str = Field(min_length=10, max_length=4500)
     tags: list[str] = Field(default_factory=list, max_length=20)
     disclosure: Disclosure
+
+    @field_validator("subject", "visual_style")
+    @classmethod
+    def _visual_fields_en(cls, v: str, info) -> str:
+        return _english_only(v, info.field_name)  # type: ignore[return-value]
 
     @field_validator("title")
     @classmethod

@@ -109,3 +109,47 @@ def test_config_errors_do_not_echo_secrets():
         load_settings({"APP_ENV": "prod", "DATABASE_URL": "sqlite:///x.db", "NVIDIA_API_KEY": "nvapi-leakcheck-123456",
                        "YOUTUBE_REFRESH_TOKEN": "1//leakcheck-refresh-abcdef"})
     assert "leakcheck" not in str(e.value) and "PostgreSQL" in str(e.value)
+
+
+@pytest.mark.parametrize("bad", [
+    "Split screen: the dull pebble on the left and the glowing one on the right",
+    "The same stone now glows softly in the forest",
+    "A wooden sign with the word HELLO stands next to the robot",
+    "Camera pans over the robot while captions appear",
+])
+def test_scene_prompt_rejects_what_video_models_cannot_do(bad):
+    data = copy.deepcopy(SCRIPT)
+    data["scenes"][1]["generation_prompt"] = bad
+    with pytest.raises(ValidationError, match="generation_prompt must not contain"):
+        Script.model_validate(data)
+
+
+def test_compose_video_prompt_repeats_subject_and_style_in_every_scene():
+    from shorts_factory.scripting import compose_video_prompt
+
+    s = Script.model_validate(SCRIPT)
+    prompts = [compose_video_prompt(s, sc) for sc in s.scenes]
+    for p, sc in zip(prompts, s.scenes, strict=True):
+        assert p.startswith(sc.generation_prompt.rstrip("."))
+        assert f"Main subject: {s.subject}" in p and f"Style: {s.visual_style}" in p
+        assert "no lettering" in p and "9:16" in p
+    assert len(set(prompts)) == len(prompts)
+
+
+def test_texture_is_not_mistaken_for_text():
+    data = copy.deepcopy(SCRIPT)
+    data["scenes"][0]["generation_prompt"] = "Macro shot of the robot's paper texture as light sweeps across it slowly"
+    Script.model_validate(data)
+
+
+def test_visual_fields_must_be_english_and_state_is_composed():
+    from shorts_factory.scripting import compose_video_prompt
+
+    data = copy.deepcopy(SCRIPT)
+    data["subject"] = "небольшой кусок бурого лимонита"
+    with pytest.raises(ValidationError, match="English"):
+        Script.model_validate(data)
+    data = copy.deepcopy(SCRIPT)
+    data["scenes"][2]["subject_state"] = "now standing upright, its folds glowing brighter"
+    s = Script.model_validate(data)
+    assert "Main subject: " + s.subject.rstrip(".") + ", now standing upright" in compose_video_prompt(s, s.scenes[2])

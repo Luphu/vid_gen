@@ -48,7 +48,7 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
                     fmt: str = "короткий ролик") -> tuple[Script, str]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
-    p = prompts.load("script_v2")
+    p = prompts.load("script_v3")
     max_scene = min(s.max_scene_seconds, 20.0)
     min_scenes = max(1, int(-(-s.target_min_s // max_scene)))  # ceil
     analysis_view = analysis.model_dump(include={"mode", "topic", "hook", "structure", "pacing",
@@ -73,6 +73,21 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
     if issues:
         raise ScriptRejected("originality: " + "; ".join(issues))
     return script, p.ref
+
+
+def compose_video_prompt(script: Script, scene) -> str:
+    """Deterministic final prompt: identical subject/style text in every scene keeps them consistent.
+
+    Wan 2.2 on Replicate has no negative_prompt, so the "no lettering" constraint is stated positively."""
+    region = {"center": "centered", "top": "in the upper part of the frame",
+              "bottom": "in the lower part of the frame"}[scene.important_region]
+    parts = [scene.generation_prompt.strip().rstrip("."),
+             f"Main subject: {script.subject.strip().rstrip('.')}"
+             + (f", {scene.subject_state.strip().rstrip('.')}" if scene.subject_state else ""),
+             f"Style: {script.visual_style.strip().rstrip('.')}",
+             f"Single continuous shot, vertical 9:16 composition, main subject {region}",
+             "Clean image with no lettering, no captions, no logos and no watermark"]
+    return ". ".join(parts) + "."
 
 
 def frames_for(duration_s: float, fps: int, min_frames: int, max_frames: int) -> int:

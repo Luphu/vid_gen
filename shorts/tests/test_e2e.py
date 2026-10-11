@@ -46,7 +46,7 @@ def test_dry_run_end_to_end(settings_env):
     an = d.store.get_stage(job.id, "analysis")["analysis"]
     assert an["mode"] == "metadata_only" and an["pacing"] is None and an["limitations"]
     sc = d.store.get_stage(job.id, "script")
-    assert sc["prompt"] == "script@v2" and sc["format"] in d.s.content_formats
+    assert sc["prompt"] == "script@v3" and sc["format"] in d.s.content_formats
     qc = d.store.get_stage(job.id, "validate")["qc"]
     assert qc["ok"], qc
     assert qc["width"] == 360 and qc["height"] == 640 and qc["has_audio"] is True  # mock TTS narration
