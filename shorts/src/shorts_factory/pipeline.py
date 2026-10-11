@@ -22,7 +22,7 @@ from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
-from .analysis import analyze_full_media, analyze_metadata_only
+from .analysis import analyze_full_media, analyze_metadata_only, analyze_public_signals
 from .budget import BudgetGuard
 from .config import ConfigError, Settings
 from .ff import FF
@@ -65,6 +65,7 @@ class Deps:
     ff: FF
     text: Any = None
     vision: Any = None
+    analyst: Any = None  # NVIDIA text model that turns public signals into plot beats
     video: Any = None
     tts: TTS | None = None
     trends: TrendSource | None = None
@@ -96,11 +97,17 @@ def _cand_view(c: Candidate) -> dict:
 _FMT_RANK = {FormatStatus.CONFIRMED: 0, FormatStatus.PROBABLE: 1, FormatStatus.UNKNOWN: 2}
 
 
-def select_candidate(s: Settings, cands: list[Candidate]) -> Candidate | None:
+def select_candidate(s: Settings, cands: list[Candidate], avoid_channels: set[str] | None = None) -> Candidate | None:
     pool = [c for c in cands if c.format_status != FormatStatus.NOT_SHORT
-            and c.ai.ai_likelihood is not None and c.ai.ai_likelihood >= s.ai_review_low]
-    pool.sort(key=lambda c: (c.ai.ai_likelihood < s.ai_min_likelihood,  # confident AI first
-                             _FMT_RANK[c.format_status], c.search_rank))
+            and c.channel_id not in (avoid_channels or set())]
+    if s.select_require_ai:
+        pool = [c for c in pool if c.ai.ai_likelihood is not None and c.ai.ai_likelihood >= s.ai_review_low]
+        pool.sort(key=lambda c: (c.ai.ai_likelihood < s.ai_min_likelihood,  # confident AI first
+                                 _FMT_RANK[c.format_status], c.search_rank))
+    else:
+        if s.trend_require_made_for_kids:
+            pool = [c for c in pool if c.made_for_kids is True]
+        pool.sort(key=lambda c: (-(c.view_count or 0), c.search_rank))  # most viewed of the top N
     return pool[0] if pool else None
 
 
@@ -124,10 +131,11 @@ def run_once(d: Deps) -> dict:
             pool = [Candidate.model_validate(x) for x in d.store.unused_candidates(now)]
             fresh = [c for c in pool if c.fetched_at.timestamp() > now - d.s.trend_refresh_hours * 3600]
             disc = None
-            if select_candidate(d.s, fresh) is None:  # search only when no fresh usable candidate is stored
+            avoid = d.store.used_channels()
+            if select_candidate(d.s, fresh, avoid) is None:  # search only when no fresh usable candidate is stored
                 disc = discover(d)
                 pool = [Candidate.model_validate(x) for x in d.store.unused_candidates(now)]
-            cand = select_candidate(d.s, pool)
+            cand = select_candidate(d.s, pool, avoid) or select_candidate(d.s, pool)
             if cand is None:
                 return {"status": "no_candidate", "discovery": disc}
             day = datetime.now(UTC).strftime("%Y-%m-%d")
@@ -210,6 +218,14 @@ def stage_analyze(d: Deps, job: Job) -> Job:
                 cand.format_status, cand.format_reason = FormatStatus.CONFIRMED, "rights-holder manifest"
             analysis, pref = analyze_full_media(cand, media, d.vision, d.ff, _work(d, job), d.s.content_language,
                                                 d.s.analysis_max_frames, d.s.analysis_frame_size)
+        elif d.vision is not None and d.analyst is not None and cand.thumbnail_url:
+            titles: list[str] = []
+            if hasattr(d.trends, "channel_recent_titles"):
+                try:
+                    titles = d.trends.channel_recent_titles(cand.channel_id)
+                except (ProviderError, BudgetExceeded) as e:
+                    log.warning("channel pattern unavailable: %s", e)
+            analysis, pref = analyze_public_signals(cand, d.vision, d.analyst, titles)
         else:
             analysis, pref = analyze_metadata_only(cand, d.text, d.s.content_language)
     except StructuredOutputError as e:
@@ -219,7 +235,7 @@ def stage_analyze(d: Deps, job: Job) -> Job:
     payload = {"analysis": analysis.model_dump(mode="json"), "prompt": pref,
                "candidate_format": cand.format_status.value, "format_reason": cand.format_reason}
     ai = analysis.ai or cand.ai
-    if ai.ai_likelihood is None or ai.ai_likelihood < d.s.ai_min_likelihood:
+    if d.s.select_require_ai and (ai.ai_likelihood is None or ai.ai_likelihood < d.s.ai_min_likelihood):
         return _review(d, job, f"ambiguous AI classification (ai_likelihood={ai.ai_likelihood}, "
                                f"source={ai.classification_source}); approve to continue",
                        JobState.ANALYZED, "analysis", payload)
@@ -369,7 +385,7 @@ def stage_render(d: Deps, job: Job) -> Job:
               for sc, r in zip(script.scenes, gen["scenes"], strict=True)]
     narr = [(_fetch(d, k, work / "audio" / Path(k).name) if k else None) for k in gen["narration"]]
     music = _music(d, work)
-    out = render(d.s, d.ff, script, RenderInputs(scenes, narr, music), work / "render")
+    out, shots = render(d.s, d.ff, script, RenderInputs(scenes, narr, music), work / "render")
     key = f"jobs/{job.id}/final.mp4"
     d.artifacts.put_file(key, out, "video/mp4")
     sha = hashlib.sha256()
@@ -378,13 +394,15 @@ def stage_render(d: Deps, job: Job) -> Job:
             sha.update(b)
     return d.store.transition(job, JobState.RENDERED, stage="render", payload={
         "final_key": key, "size": out.stat().st_size, "sha256": sha.hexdigest(),
-        "expect_audio": expected_audio(narr, music), "narration": any(narr), "music": d.s.music_file_key or None})
+        "expect_audio": expected_audio(narr, music), "narration": any(narr), "music": d.s.music_file_key or None,
+        "edit": {"shots": len(shots), "avg_shot_s": round(sum(shots) / max(1, len(shots)), 2),
+                 "first_shot_s": shots[0] if shots else None}})
 
 
 def stage_validate(d: Deps, job: Job) -> Job:
     r = d.store.get_stage(job.id, "render") or {}
     final = _fetch(d, r["final_key"], _work(d, job) / "render" / "final.mp4")
-    qc: QCReport = check_final(d.s, d.ff, final, r["expect_audio"])
+    qc: QCReport = check_final(d.s, d.ff, final, r["expect_audio"], (r.get("edit") or {}).get("avg_shot_s"))
     qc.file_key = r["final_key"]
     payload = {"qc": qc.model_dump(mode="json")}
     if not qc.ok:

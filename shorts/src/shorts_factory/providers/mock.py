@@ -28,8 +28,16 @@ class MockChat:
         data = self.responses[model_cls.__name__]
         return model_cls.model_validate(json.loads(json.dumps(data)), context=context), f"mock-{self.calls}"
 
+    def chat(self, messages: list[dict], *, max_tokens: int, temperature: float = 0.4,
+             json_mode: bool = False) -> tuple[str, str | None]:
+        self.calls += 1
+        return "A grey 3D-cartoon kitten with big eyes holds a brush in a sunny backyard.", f"mock-{self.calls}"
+
     def frames_content(self, frames: list[Path]) -> list[dict]:
         return [{"type": "text", "text": f"[{len(frames)} frames]"}]
+
+    def image_urls_content(self, urls) -> list[dict]:
+        return [{"type": "text", "text": f"[{len(urls)} images]"}]
 
 
 class MockVideo:
@@ -94,6 +102,17 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
         "MetaOut": {"topic": "Тест: короткие ИИ-ролики о необычных предметах",
                     "hook": "по названию: обещание неожиданного превращения", "confidence": "low",
                     "audience_interest_hypothesis": "гипотеза: интерес к визуальным трансформациям"},
+        "PublicOut": {"topic": "A cartoon kitten learns colours by painting a fence",
+                      "hook": "The kitten spills a bucket of paint in the first shot (from thumbnail)",
+                      "plot_beats": [
+                          {"order": 0, "what_happens": "Kitten finds paint buckets", "evidence": ["thumbnail"],
+                           "confidence": "medium"},
+                          {"order": 1, "what_happens": "Kitten paints the fence in different colours",
+                           "evidence": ["title", "description"], "confidence": "high"}],
+                      "characters": ["small grey 3D-cartoon kitten with big eyes"], "setting": "sunny backyard",
+                      "visual_description": "Bright 3D cartoon, kitten in centre holding a brush, rainbow fence",
+                      "on_screen_text": [], "audience_interest_hypothesis": "colour learning + slapstick",
+                      "unknowns": ["ending", "music"], "confidence": "medium"},
         "MediaOut": {"topic": "Тест: превращение предметов", "hook": "первый кадр с крупным объектом",
                      "structure": ["завязка", "превращение", "финал"], "pacing": "быстрая смена сцен",
                      "scenes": [{"t_start": 0, "description": "крупный план предмета", "composition": "центр",

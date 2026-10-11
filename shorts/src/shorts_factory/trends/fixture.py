@@ -31,3 +31,6 @@ class FixtureTrendSource:
                             published_after=now - timedelta(days=3), max_results=len(out), fetched_at=now,
                             pages_fetched=0)
         return scope, out
+
+    def channel_recent_titles(self, channel_id: str, n: int = 15) -> list[str]:
+        return []

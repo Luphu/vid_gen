@@ -7,6 +7,7 @@ ratios are letterboxed by default (keeps every object), or cropped around the sc
 
 from __future__ import annotations
 
+import math
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,38 +24,88 @@ class RenderInputs:
     music: Path | None
 
 
-def _vf(s: Settings, src_w: int, src_h: int, scene: Scene, text_file: Path | None, fit: str) -> str:
+@dataclass
+class Shot:
+    start: float   # offset in the generated clip
+    length: float  # seconds on screen
+    zoom: float    # 1.0 = full frame, >1 = punch-in
+
+
+def plan_shots(clip_s: float, scene_s: float, first_scene: bool, max_shot: float, first_shot: float,
+               punch: float) -> list[Shot]:
+    """Split one generated clip into fast cuts taken from different moments, alternating framing."""
+    lengths: list[float] = []
+    rest = scene_s
+    if first_scene and scene_s > first_shot + 0.5:
+        lengths.append(first_shot)
+        rest -= first_shot
+    n = max(1, math.ceil(rest / max_shot - 1e-9))
+    lengths += [rest / n] * n
+    zooms = [1.0, punch, 1.0 + (punch - 1.0) / 2]
+    shots = []
+    for i, ln in enumerate(lengths):
+        span = max(0.0, clip_s - ln)
+        start = span * i / (len(lengths) - 1) if len(lengths) > 1 else 0.0
+        shots.append(Shot(start=round(start, 3), length=round(ln, 3), zoom=zooms[i % len(zooms)]))
+    return shots
+
+
+def _geo(s: Settings, src_w: int, src_h: int, scene: Scene, fit: str) -> str:
     W, H = s.out_width, s.out_height
     same_aspect = src_w and src_h and abs(src_w / src_h - W / H) < 0.02
     if same_aspect or fit == "pad":
-        geo = (f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
-               f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black")
-    else:
-        y = {"top": "0", "bottom": "ih-oh", "center": "(ih-oh)/2"}[scene.important_region]
-        geo = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}:(iw-ow)/2:{y}"
-    chain = [geo, "setsar=1", f"fps={s.out_fps}", f"tpad=stop_mode=clone:stop_duration={scene.duration_s:.3f}"]
-    if text_file is not None:
-        size = max(36, min(64, int(W * 1.5 / max(12, max(len(x) for x in text_file.read_text().splitlines())))))
-        chain.append(
-            f"drawtext=fontfile={filter_path(Path(s.font_file))}:textfile={filter_path(text_file)}:expansion=none"
-            f":fontsize={size}:fontcolor=white:borderw=4:bordercolor=black@0.8:line_spacing=8"
-            f":x=(w-text_w)/2:y=h*0.72"
-        )
-    return ",".join(chain)
+        return (f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
+                f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black")
+    y = {"top": "0", "bottom": "ih-oh", "center": "(ih-oh)/2"}[scene.important_region]
+    return f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}:(iw-ow)/2:{y}"
 
 
-def normalize_scene(s: Settings, ff: FF, src: Path, scene: Scene, dst: Path, work: Path) -> Path:
-    v = stream(ff.probe(src), "video") or {}
+def _zoom(s: Settings, scene: Scene, z: float) -> str:
+    if z <= 1.001:
+        return ""
+    W, H = s.out_width, s.out_height
+    cw, ch = int(W / z) // 2 * 2, int(H / z) // 2 * 2
+    y = {"top": "0", "bottom": f"{H - ch}", "center": f"{(H - ch) // 2}"}[scene.important_region]
+    return f",crop={cw}:{ch}:{(W - cw) // 2}:{y},scale={W}:{H}"
+
+
+def _text_filter(s: Settings, text_file: Path | None) -> str:
+    """drawtext reads the text from a file: untrusted script text never enters the filter syntax."""
+    if text_file is None:
+        return ""
+    longest = max(len(x) for x in text_file.read_text().splitlines())
+    size = max(36, min(64, int(s.out_width * 1.5 / max(12, longest))))
+    return (f",drawtext=fontfile={filter_path(Path(s.font_file))}:textfile={filter_path(text_file)}"
+            f":expansion=none:fontsize={size}:fontcolor=white:borderw=4:bordercolor=black@0.8:line_spacing=8"
+            f":x=(w-text_w)/2:y=h*0.72")
+
+
+def normalize_scene(s: Settings, ff: FF, src: Path, scene: Scene, dst: Path, work: Path,
+                    first_scene: bool = False) -> list[Shot]:
+    """One H.264 encode per scene: fast cuts from the clip + framing + on-screen text."""
+    info = ff.probe(src)
+    v = stream(info, "video") or {}
     text_file = None
     if s.burn_subtitles and scene.on_screen_text.strip():
         text_file = work / f"text_{scene.index}.txt"
         text_file.write_text("\n".join(textwrap.wrap(scene.on_screen_text.strip(), 22)[:3]), encoding="utf-8")
-    vf = _vf(s, int(v.get("width") or 0), int(v.get("height") or 0), scene, text_file, s.fit_mode)
-    ff.run(["-threads", str(ff.threads), "-i", str(src), "-an", "-vf", vf, "-t", f"{scene.duration_s:.3f}",
+    shots = plan_shots(duration_of(info) or scene.duration_s, scene.duration_s, first_scene, s.edit_max_shot_s,
+                       s.edit_first_shot_s, s.edit_punch_in)
+    geo = _geo(s, int(v.get("width") or 0), int(v.get("height") or 0), scene, s.fit_mode)
+    parts = [f"[0:v]split={len(shots)}" + "".join(f"[s{i}]" for i in range(len(shots)))] if len(shots) > 1 \
+        else ["[0:v]null[s0]"]
+    for i, sh in enumerate(shots):
+        parts.append(f"[s{i}]trim=start={sh.start:.3f}:duration={sh.length:.3f},setpts=PTS-STARTPTS,{geo}"
+                     f"{_zoom(s, scene, sh.zoom)},setsar=1,fps={s.out_fps}[c{i}]")
+    parts.append("".join(f"[c{i}]" for i in range(len(shots))) + f"concat=n={len(shots)}:v=1:a=0[cat]")
+    parts.append(f"[cat]tpad=stop_mode=clone:stop_duration={scene.duration_s:.3f}"
+                 f"{_text_filter(s, text_file)}[out]")
+    ff.run(["-threads", str(ff.threads), "-i", str(src), "-an", "-filter_complex", ";".join(parts),
+            "-map", "[out]", "-t", f"{scene.duration_s:.3f}",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p",
             "-profile:v", "high", "-r", str(s.out_fps), "-g", str(s.out_fps * 2),
             "-x264-params", f"threads={ff.threads}", str(dst)])
-    return dst
+    return shots
 
 
 def build_narration(ff: FF, parts: list[tuple[Path | None, float]], dst: Path) -> Path | None:
@@ -76,9 +127,14 @@ def build_narration(ff: FF, parts: list[tuple[Path | None, float]], dst: Path) -
     return dst
 
 
-def render(s: Settings, ff: FF, script: Script, inp: RenderInputs, work: Path) -> Path:
+def render(s: Settings, ff: FF, script: Script, inp: RenderInputs, work: Path) -> tuple[Path, list[float]]:
+    """Returns the final file and the on-screen length of every shot (for the pacing check)."""
     work.mkdir(parents=True, exist_ok=True)
-    norm = [normalize_scene(s, ff, src, sc, work / f"norm_{sc.index:02d}.mp4", work) for sc, src in inp.scenes]
+    norm, shot_lengths = [], []
+    for k, (sc, src) in enumerate(inp.scenes):
+        dst = work / f"norm_{sc.index:02d}.mp4"
+        shot_lengths += [sh.length for sh in normalize_scene(s, ff, src, sc, dst, work, first_scene=k == 0)]
+        norm.append(dst)
     lst = work / "concat.txt"
     lst.write_text("".join(f"file '{p.name}'\n" for p in norm))
     video_only = work / "video_only.mp4"
@@ -107,7 +163,7 @@ def render(s: Settings, ff: FF, script: Script, inp: RenderInputs, work: Path) -
     else:
         args += ["-map", "0:v", "-c:v", "copy", "-an"]
     ff.run([*args, "-t", f"{total:.3f}", "-movflags", "+faststart", str(out)])
-    return out
+    return out, shot_lengths
 
 
 def expected_audio(narration: list[Path | None], music: Path | None) -> bool:

@@ -153,3 +153,27 @@ def test_visual_fields_must_be_english_and_state_is_composed():
     data["scenes"][2]["subject_state"] = "now standing upright, its folds glowing brighter"
     s = Script.model_validate(data)
     assert "Main subject: " + s.subject.rstrip(".") + ", now standing upright" in compose_video_prompt(s, s.scenes[2])
+
+
+def test_plan_shots_is_fast_and_covers_scene():
+    from shorts_factory.render import plan_shots
+
+    shots = plan_shots(clip_s=5.06, scene_s=6.0, first_scene=True, max_shot=2.0, first_shot=1.2, punch=1.15)
+    assert shots[0].length == 1.2 and abs(sum(x.length for x in shots) - 6.0) < 0.01
+    assert all(x.length <= 2.0 for x in shots) and len({x.zoom for x in shots}) > 1
+    assert all(0 <= x.start <= 5.06 - x.length + 1e-6 for x in shots)
+    assert [x.start for x in shots] == sorted(x.start for x in shots)
+    one = plan_shots(clip_s=5.06, scene_s=1.5, first_scene=False, max_shot=2.0, first_shot=1.2, punch=1.15)
+    assert len(one) == 1 and one[0].length == 1.5
+
+
+def test_public_signals_cannot_claim_editing_or_frames():
+    base = dict(mode="public_signals", video_id="abcdefghijk", topic="t", sources=["api"],
+                plot_beats=[{"order": 0, "what_happens": "cat paints", "evidence": ["thumbnail"]}])
+    Analysis(**base)
+    with pytest.raises(ValidationError):
+        Analysis(**base, pacing="fast")
+    with pytest.raises(ValidationError):
+        Analysis(**dict(base, plot_beats=[{"order": 0, "what_happens": "x", "evidence": ["frames"]}]))
+    with pytest.raises(ValidationError):
+        Analysis(**dict(base, plot_beats=[{"order": 0, "what_happens": "x", "evidence": []}]))

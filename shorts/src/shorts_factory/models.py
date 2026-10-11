@@ -89,6 +89,9 @@ class Candidate(Strict):
     comment_count: int | None = None
     default_language: str | None = None
     contains_synthetic_media: bool | None = None
+    made_for_kids: bool | None = None
+    thumbnail_url: str | None = None
+    topic_categories: list[str] = Field(default_factory=list)
     format_status: FormatStatus = FormatStatus.UNKNOWN
     format_reason: str = ""
     ai: AIClassification = Field(default_factory=AIClassification)
@@ -114,8 +117,17 @@ class SceneObservation(Strict):
     on_screen_text: str | None = None
 
 
+class PlotBeat(Strict):
+    order: int = Field(ge=0)
+    what_happens: str = Field(min_length=3, max_length=400)
+    evidence: list[Literal["title", "description", "tags", "thumbnail", "topics", "channel_pattern",
+                           "frames", "subtitles"]] = Field(min_length=1)
+    confidence: Literal["low", "medium", "high"] = "low"
+
+
 class Analysis(Strict):
-    mode: Literal["metadata_only", "full_media"]
+    # public_signals: title/description/tags/topics + thumbnail + channel pattern (no video access)
+    mode: Literal["metadata_only", "public_signals", "full_media"]
     video_id: str
     topic: str
     hook: str | None = None
@@ -126,6 +138,11 @@ class Analysis(Strict):
     on_screen_text: list[str] = Field(default_factory=list)
     audio_role: str | None = None
     audience_interest_hypothesis: str | None = None
+    plot_beats: list[PlotBeat] = Field(default_factory=list)
+    characters: list[str] = Field(default_factory=list)
+    setting: str | None = None
+    visual_description: str | None = None
+    unknowns: list[str] = Field(default_factory=list)
     confidence: Literal["low", "medium", "high"] = "low"
     sources: list[str] = Field(min_length=1)
     limitations: list[str] = Field(default_factory=list)
@@ -140,6 +157,13 @@ class Analysis(Strict):
             ]
             if invented or self.scenes or self.on_screen_text or self.structure:
                 raise ValueError(f"metadata_only analysis must not describe media: {invented or 'scenes'}")
+        if self.mode == "public_signals":
+            # Only the thumbnail is seen: no claims about editing, timing or sound.
+            invented = [n for n in ("pacing", "scene_changes", "audio_role") if getattr(self, n) is not None]
+            if invented or self.scenes:
+                raise ValueError(f"public_signals analysis must not describe editing/audio: {invented or 'scenes'}")
+            if any(set(b.evidence) & {"frames", "subtitles"} for b in self.plot_beats):
+                raise ValueError("public_signals cannot cite frames/subtitles as evidence")
         return self
 
 

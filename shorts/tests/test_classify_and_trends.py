@@ -120,3 +120,53 @@ def test_youtube_search_falls_back_to_oauth(store):
     YouTubeSearchSource(s, BudgetGuard(store, s.budget), httpx.Client(transport=httpx.MockTransport(h)),
                         Tok()).discover()
     assert seen and all(x == "Bearer ya29.test-token" for x in seen)
+
+
+def test_kids_mode_keeps_top_n_made_for_kids_by_views(store):
+    views = {"vidAAAAAAA1": "10", "vidBBBBBBB2": "999", "vidCCCCCCC3": "50"}
+    mfk = {"vidAAAAAAA1": True, "vidBBBBBBB2": False, "vidCCCCCCC3": True}
+
+    def h(req):
+        if req.url.path.endswith("/search"):
+            q = dict(req.url.params)
+            assert q["safeSearch"] == "strict" and q["videoDuration"] == "short"
+            return httpx.Response(200, json={"items": [{"id": {"videoId": v}} for v in views]})
+        assert "topicDetails" in dict(req.url.params)["part"]
+        return httpx.Response(200, json={"items": [{
+            "id": v, "snippet": {"title": "t #shorts", "channelId": "UC" + v, "publishedAt": "2026-10-10T00:00:00Z",
+                                 "thumbnails": {"high": {"url": f"https://i.ytimg.com/vi/{v}/hq.jpg"}}},
+            "contentDetails": {"duration": "PT20S"}, "statistics": {"viewCount": views[v]},
+            "status": {"madeForKids": mfk[v]},
+            "topicDetails": {"topicCategories": ["https://en.wikipedia.org/wiki/Entertainment"]}} for v in views]})
+    s = load_settings({"YOUTUBE_API_KEY": "test-api-key-123456", "TREND_KEYWORDS": "a", "TREND_MODE": "kids",
+                       "TREND_REQUIRE_MADE_FOR_KIDS": "true", "TREND_TOP_N": "30"})
+    _, cands = YouTubeSearchSource(s, BudgetGuard(store, s.budget),
+                                   httpx.Client(transport=httpx.MockTransport(h))).discover()
+    assert [c.video_id for c in cands] == ["vidCCCCCCC3", "vidAAAAAAA1"]  # adult video dropped, sorted by views
+    assert cands[0].search_rank == 0 and cands[0].thumbnail_url.startswith("https://i.ytimg.com/")
+    assert cands[0].topic_categories == ["Entertainment"] and cands[0].made_for_kids is True
+
+
+def test_kids_selection_ignores_ai_signal_and_avoids_used_channels(settings_env, tmp_path):
+    from shorts_factory.trends.fixture import FixtureTrendSource
+
+    s = load_settings(dict(settings_env, SELECT_REQUIRE_AI="false", TREND_REQUIRE_MADE_FOR_KIDS="true"))
+    _, cands = FixtureTrendSource("examples/kids_trends_fixture.json", s.ai_keywords).discover()
+    assert select_candidate(s, cands).video_id == "kidsBBBB002"  # most viewed made-for-kids; adult one excluded
+    assert select_candidate(s, cands, {"UCkidschannel0000000002"}).video_id == "kidsAAAA001"
+
+
+def test_language_filter_uses_metadata_then_title_script():
+    from datetime import UTC, datetime
+
+    from shorts_factory.models import Candidate
+    from shorts_factory.trends.youtube import language_ok
+
+    def c(title, lang=None):
+        return Candidate(video_id="abcdefghijk", title=title, channel_id="UCx", published_at=datetime.now(UTC),
+                         fetched_at=datetime.now(UTC), default_language=lang)
+    assert language_ok(c("Котик рисует радугу #shorts"), ["ru", "en"])
+    assert language_ok(c("Sharing Is Caring 🍦 #shorts"), ["ru", "en"])
+    assert not language_ok(c("আয়ান ফাতেমার নতুন বন্ধু 🥰"), ["ru", "en"])
+    assert not language_ok(c("Any title", "bn"), ["ru", "en"]) and language_ok(c("x", "ru-RU"), ["ru"])
+    assert language_ok(c("আয়ান"), [])

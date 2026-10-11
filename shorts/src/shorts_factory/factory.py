@@ -55,7 +55,7 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
         from .providers.mock import MockChat, MockVideo, default_mock_responses
 
         chat = MockChat(default_mock_responses(s.content_language))
-        d.text = d.vision = chat
+        d.text = d.vision = d.analyst = chat
         d.video = MockVideo(ff, *_gen_size(s), budget=budget)
     else:
         from .providers.nim_chat import NimTextClient, NimVisionClient
@@ -63,6 +63,7 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
 
         limiter = ConcurrencyLimiter(s.nim_max_concurrency)
         d.vision = NimVisionClient(s, budget, limiter=limiter) if s.nvidia_api_key else None
+        d.analyst = NimTextClient(s, budget, limiter=limiter) if s.nvidia_api_key else None
         if s.text_provider == "replicate":
             from .providers.replicate import ReplicateText
 
@@ -79,7 +80,10 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
     if not s.dry_run:
         d.youtube = make_youtube(s, store, budget)
     elif s.youtube_refresh_token:
-        d.youtube = make_youtube(s, store, budget)  # publish-stage status checks of earlier real jobs
+        try:  # optional in dry-run: only for status checks of earlier real jobs
+            d.youtube = make_youtube(s, store, budget)
+        except ConfigError:
+            d.youtube = None
     return d
 
 
