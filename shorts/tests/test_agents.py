@@ -159,3 +159,11 @@ def test_infeasible_story_goes_back_to_the_writer_once():
     assert "lamppost" in agent.calls[4][1][-1]["content"] and report["escalations"]
     # the fresh director plan starts from the new story, not as a revision of the rejected one
     assert agent.calls[5][1][-1]["role"] == "user" and len(agent.calls[5][1]) == 1
+
+
+def test_on_screen_text_repeating_the_narration_goes_back_to_the_editor():
+    echo = copy.deepcopy(MOCK["Edit"])
+    echo["scenes"][1]["on_screen_text"] = "Сломанный карандаш"  # both words are in the narration
+    agent = Fake(Edit=[echo, MOCK["Edit"]])
+    _, _, report = write_with_team(_s(), agent, Fake(), CAND, AN, "x")
+    assert "repeats the narration" in report["phases"]["editor"][0]["checks"][0]
