@@ -12,7 +12,8 @@ Rules:
   fur/skin details> + <one distinctive detail>. No patches, badges, prints, name tags, logos. The code repeats
   it verbatim in every scene prompt, so it must be complete and unambiguous.
 - "setting": the single location in English, rich in props the hero can interact with. No screens, displays,
-  monitors, holograms, signs, posters, labels, books, newspapers, packaging — they turn into fake lettering.
+  monitors, holograms, signs, posters, labels, books, newspapers, packaging, packets, bottles, cans, boxes —
+  they turn into fake lettering or brand-like labels.
 - "visual_style": one English line: realism level (e.g. bright 3D animated film look, or cinematic live action),
   lighting, palette, lens. Bright, saturated, appealing.
 - One shot per story scene, same indexes. "generation_prompt" (English, 25–70 words): what the hero does in

@@ -182,18 +182,28 @@ _TEXT_PRONE = re.compile(
     r"labels?|books?|newspapers?|badges?|name ?tags?|patches|logos?|banners?|scoreboards?|neon signs?)\b")
 
 
+# Packaged goods come out with brand-like labels (a ketchup packet looked like a famous brand, 2026-10-12).
+_PACKAGED = re.compile(
+    r"(?i)\b(packets?|sachets?|wrappers?|packaging|cartons?|cereal|jars?|cans|(?:tin|soda) can|cans? of|bottles?|boxes|"
+    r"chip bags?|bags? of chips|candy bars?|soda|ketchup|mustard|mayonnaise)\b")
+
+
 def _english_only(v: str | None, field: str) -> str | None:
     if v and _CYRILLIC.search(v):
         raise ValueError(f"{field} must be written in English (video models follow English prompts best)")
     return v
 
 
-def check_generation_prompt(v: str) -> str:
+def check_generation_prompt(v: str, stored: bool = False) -> str:
     _english_only(v, "generation_prompt")
     m = _FORBIDDEN_IN_SCENE.search(v)
     if m:
         raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: each scene is generated "
                          "independently, as one continuous shot, without any lettering")
+    m = None if stored else _PACKAGED.search(v)  # generation-time rule only
+    if m:
+        raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: packaged goods get brand-like "
+                         "labels; use unbranded food or objects without packaging")
     return v
 
 
@@ -201,7 +211,7 @@ def check_visual_field(field: str, v: str, stored: bool = False) -> str:
     """subject / setting / visual_style: English; subject and setting without text-prone props."""
     _english_only(v, field)
     if field in ("subject", "setting") and not stored:  # generation-time rule only
-        m = _TEXT_PRONE.search(v)
+        m = _TEXT_PRONE.search(v) or _PACKAGED.search(v)
         if m:
             raise ValueError(f"{field} must not contain {m.group(0)!r}: image models fill it with fake "
                              "lettering; describe props without screens, signs or printed items")
@@ -222,8 +232,8 @@ class Scene(Strict):
 
     @field_validator("generation_prompt")
     @classmethod
-    def _video_safe(cls, v: str) -> str:
-        return check_generation_prompt(v)
+    def _video_safe(cls, v: str, info) -> str:
+        return check_generation_prompt(v, stored=bool(info.context and info.context.get("stored")))
 
     @field_validator("subject_state")
     @classmethod

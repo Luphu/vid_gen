@@ -282,3 +282,18 @@ def test_punch_up_then_voice_over_density_is_enforced():
         generate_script(s, _Seq(terse, {"critique": [], "script": terse}, terse), cand, an, "x")
     silent = load_settings({"CONTENT_LANGUAGE": "ru", "FACT_CHECK": "false", "SCRIPT_PUNCH_UP": "false"})
     generate_script(silent, _Seq(terse), cand, an, "x")  # no TTS -> no voice-over rule
+
+
+@pytest.mark.parametrize("bad", ["The subject squeezes a ketchup packet", "The subject opens a soda can"])
+def test_packaged_goods_rejected_at_generation_but_old_scripts_load(bad):
+    data = copy.deepcopy(SCRIPT)
+    data["scenes"][0]["generation_prompt"] = bad + ", slow push-in, warm light"
+    with pytest.raises(ValidationError, match="packaged goods"):
+        Script.model_validate(data)
+    Script.model_validate(data, context={"stored": True})
+
+
+def test_verb_can_is_not_a_packaged_good():
+    data = copy.deepcopy(SCRIPT)
+    data["scenes"][0]["generation_prompt"] = "The subject can barely reach the shelf, stretching up, slow push-in"
+    Script.model_validate(data)
