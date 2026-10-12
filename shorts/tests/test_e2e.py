@@ -278,6 +278,23 @@ def test_longest_silence_and_pause_gate(settings, tmp_path):
     assert not any(f.startswith("narration_pauses") for f in good.failures)
 
 
+def test_narration_j_cut_shortens_long_pause(tmp_path):
+    from shorts_factory.ff import duration_of
+    from shorts_factory.render import build_narration
+
+    ff = FF()
+    tones = []
+    for i in range(2):
+        tones.append(tmp_path / f"t{i}.wav")
+        ff.run(["-f", "lavfi", "-i", "sine=f=300:d=1", "-ac", "1", str(tones[i])])
+    # phrase 1 ends at 1.0 s, scene 2 starts at 3.0 s: 2.0 s of silence > 1.5 -> phrase 2 starts 0.5 s early
+    out = build_narration(ff, [(tones[0], 3.0), (tones[1], 1.2)], tmp_path / "n.wav", max_pause_s=1.5)
+    assert 1.35 < ff.longest_silence(out) < 1.65
+    assert abs(duration_of(ff.probe(out)) - 4.2) < 0.05
+    plain = build_narration(ff, [(tones[0], 3.0), (tones[1], 1.2)], tmp_path / "p.wav")
+    assert ff.longest_silence(plain) > 1.9
+
+
 def test_kids_trend_public_signals_dynamic_edit(settings_env):
     from .conftest import EXAMPLES
 

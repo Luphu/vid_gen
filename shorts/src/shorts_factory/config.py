@@ -204,8 +204,8 @@ class Settings(BaseModel):
     # "team": writer, director and editor agents on NVIDIA NIM, each with a critic; video is generated only when
     # every critic scores the final package >= critic_min_score. "single": one script model (+ punch-up).
     script_engine: Literal["team", "single"] = "team"
-    agent_model: str = "nvidia/nemotron-3-super-120b-a12b"
-    critic_model: str = "nvidia/nemotron-3-ultra-550b-a55b"  # a different model: no self-grading
+    agent_model: str = "nvidia/nemotron-3-ultra-550b-a55b"  # super as writer failed 2 of 2 real jobs
+    critic_model: str = "nvidia/nemotron-3-super-120b-a12b"  # a different model: no self-grading
     critic_min_score: int = 8
     critic_min_criterion: int = 7  # and every criterion of every critic at least this
     agent_max_rounds: int = 3    # author <-> critic rounds per role

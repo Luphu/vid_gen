@@ -112,7 +112,7 @@ class MockVideo:
 
 def default_mock_responses(language: str = "ru") -> dict[str, dict]:
     """Schema-valid canned outputs for dry runs with PROVIDER_MODE=mock."""
-    scene = ("The robot unfolds itself out of a blank notebook page on a wooden desk, its paper limbs "
+    scene = ("The robot unfolds itself out of a folded paper sheet on a wooden desk, its paper limbs "
              "creasing open one by one, slow dolly-in from a low angle")
     walk = ("The robot walks across the desk between pencils and stops beside a broken pencil, "
             "camera tracking at desk level")
@@ -150,7 +150,7 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
             "hook": "Что если тетрадь оживёт?",
             "subject": "a palm-sized origami robot folded from plain white paper, square head, two thin arms, "
                        "soft warm glow along its folds",
-            "setting": "a sunny wooden desk with pencils, a mug and an open blank notebook",
+            "setting": "a sunny wooden desk with pencils, a mug and a folded paper crane",
             "trend_link": "сохранена ситуация «маленький герой исправляет поломку» с новым персонажем",
             "visual_style": "photorealistic macro footage, warm morning window light, shallow depth of field, "
                             "muted natural colours",
