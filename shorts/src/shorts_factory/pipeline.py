@@ -489,7 +489,7 @@ def stage_render(d: Deps, job: Job) -> Job:
                 d.artifacts.put_file(k, p, "audio/wav")
         narr.append(p)
     music = _music(d, work)
-    out, shots = render(d.s, d.ff, script, RenderInputs(scenes, narr, music), work / "render")
+    out, shots, pause = render(d.s, d.ff, script, RenderInputs(scenes, narr, music), work / "render")
     key = f"jobs/{job.id}/final.mp4"
     d.artifacts.put_file(key, out, "video/mp4")
     sha = hashlib.sha256()
@@ -500,13 +500,16 @@ def stage_render(d: Deps, job: Job) -> Job:
         "final_key": key, "size": out.stat().st_size, "sha256": sha.hexdigest(),
         "expect_audio": expected_audio(narr, music), "narration": any(narr), "music": d.s.music_file_key or None,
         "edit": {"shots": len(shots), "avg_shot_s": round(sum(shots) / max(1, len(shots)), 2),
-                 "first_shot_s": shots[0] if shots else None}})
+                 "first_shot_s": shots[0] if shots else None,
+                 "narration_max_pause_s": round(pause, 2) if pause is not None else None}})
 
 
 def stage_validate(d: Deps, job: Job) -> Job:
     r = d.store.get_stage(job.id, "render") or {}
     final = _fetch(d, r["final_key"], _work(d, job) / "render" / "final.mp4")
-    qc: QCReport = check_final(d.s, d.ff, final, r["expect_audio"], (r.get("edit") or {}).get("avg_shot_s"))
+    edit = r.get("edit") or {}
+    qc: QCReport = check_final(d.s, d.ff, final, r["expect_audio"], edit.get("avg_shot_s"),
+                               edit.get("narration_max_pause_s"))
     qc.file_key = r["final_key"]
     payload = {"qc": qc.model_dump(mode="json")}
     if not qc.ok:

@@ -127,8 +127,10 @@ def build_narration(ff: FF, parts: list[tuple[Path | None, float]], dst: Path) -
     return dst
 
 
-def render(s: Settings, ff: FF, script: Script, inp: RenderInputs, work: Path) -> tuple[Path, list[float]]:
-    """Returns the final file and the on-screen length of every shot (for the pacing check)."""
+def render(s: Settings, ff: FF, script: Script, inp: RenderInputs, work: Path) -> tuple[Path, list[float],
+                                                                                       float | None]:
+    """Returns the final file, the on-screen length of every shot (for the pacing check) and the longest
+    pause of the voice-over (None without narration)."""
     work.mkdir(parents=True, exist_ok=True)
     norm, shot_lengths = [], []
     for k, (sc, src) in enumerate(inp.scenes):
@@ -163,7 +165,7 @@ def render(s: Settings, ff: FF, script: Script, inp: RenderInputs, work: Path) -
     else:
         args += ["-map", "0:v", "-c:v", "copy", "-an"]
     ff.run([*args, "-t", f"{total:.3f}", "-movflags", "+faststart", str(out)])
-    return out, shot_lengths
+    return out, shot_lengths, (ff.longest_silence(narration) if narration else None)
 
 
 def expected_audio(narration: list[Path | None], music: Path | None) -> bool:

@@ -191,6 +191,13 @@ class Settings(BaseModel):
     content_language: str = "ru"
     target_audience: str = "широкая аудитория 13+, интересующаяся технологиями и необычными фактами; не детский контент"
     tts_provider: Literal["none", "mock", "replicate"] = "none"
+    # Voice-over runs through the whole video: it never pauses longer than this (between phrases or scenes).
+    # The script must carry enough words per scene (speech rate below), TTS trims its own silences and QC
+    # measures the pauses in the narration track (limit + 0.5 s).
+    narration_max_pause_s: float = 1.5
+    narration_words_per_s: float = 2.2  # Replicate MiniMax Russian_ReliableMan, speed 1.05: ~2.0-2.4 words/s
+    # Second pass of the script model as a story editor: critique the draft and rewrite it to be more gripping
+    script_punch_up: bool = True
     # Story formats: a trend is a situation + emotion, so the new video retells one (fact lists lost the trend)
     content_formats: list[str] = Field(default_factory=lambda: [
         "неудача, паника и неожиданное решение", "превращение героя или предмета", "мини-история с поворотом в конце",

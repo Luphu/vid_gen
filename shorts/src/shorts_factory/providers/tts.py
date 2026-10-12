@@ -36,7 +36,7 @@ class MockTTS:
     def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float) -> Path | None:
         if not text.strip():
             return None
-        dur = min(max_duration_s, max(1.0, len(text.split()) / 2.5))
+        dur = min(max_duration_s, max(1.0, len(text.split()) / 2.2))
         out_wav.parent.mkdir(parents=True, exist_ok=True)
         self.ff.run(["-f", "lavfi", "-i", f"sine=frequency=220:duration={dur:.2f}:sample_rate=48000",
                      "-af", "volume=0.2", "-ac", "1", str(out_wav)])

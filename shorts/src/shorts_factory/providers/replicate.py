@@ -40,6 +40,7 @@ from .nim_video import VideoRequest
 
 log = logging.getLogger(__name__)
 TERMINAL = {"succeeded", "failed", "canceled"}
+TRIM_SILENCE = "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05"
 
 
 class ReplicateClient:
@@ -267,10 +268,17 @@ class ReplicateTTS:
             raise ProviderError("replicate tts timed out", retryable=True)
         self.rc.check_terminal(pred)
         raw = self.rc.download(_single_uri(pred.get("output")), out_wav.with_suffix(".src.wav"), 50 * 1024**2)
+        # the voice's own leading/trailing silence would add to the pause between scenes
+        trimmed = out_wav.with_suffix(".trim.wav")
+        self.ff.run(["-i", str(raw), "-af", f"{TRIM_SILENCE},areverse,{TRIM_SILENCE},areverse", str(trimmed)])
+        raw.unlink(missing_ok=True)
+        raw = trimmed
         dur = duration_of(self.ff.probe(raw))
         tempo = 1.0
         if dur > max_duration_s - 0.2:  # fit narration into the scene; beyond 1.35x it is cut in render
             tempo = min(1.35, dur / max(0.5, max_duration_s - 0.2))
+        elif 0 < dur < max_duration_s - self.s.narration_max_pause_s:  # a little slower shortens the pause
+            tempo = max(0.92, dur / (max_duration_s - self.s.narration_max_pause_s))
         self.ff.run(["-i", str(raw), "-af", f"atempo={tempo:.3f}", "-ar", "48000", "-ac", "1", str(out_wav)])
         raw.unlink(missing_ok=True)
         return out_wav
