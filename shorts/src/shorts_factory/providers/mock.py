@@ -174,4 +174,20 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
         },
     }
     out["PunchUp"] = {"critique": ["mock: hook is fine"], "script": out["Script"]}
+    sc = out["Script"]
+    out["Story"] = {"concept": sc["concept"], "hook": sc["hook"], "trend_link": sc["trend_link"],
+                    "hero": "бумажный робот", "location": "письменный стол",
+                    "scenes": [{"index": x["index"], "duration_s": x["duration_s"], "action": "робот действует",
+                                "narration": x["narration"], "on_screen_text": x["on_screen_text"]}
+                               for x in sc["scenes"]],
+                    "title": sc["title"], "description": sc["description"], "tags": sc["tags"]}
+    out["ShotPlan"] = {"subject": sc["subject"], "setting": sc["setting"], "visual_style": sc["visual_style"],
+                       "scenes": [{"index": x["index"], "generation_prompt": x["generation_prompt"],
+                                   "subject_state": None, "important_region": "center"} for x in sc["scenes"]]}
+    out["Edit"] = {"hook": sc["hook"], "title": sc["title"], "description": sc["description"], "tags": sc["tags"],
+                   "disclosure_text": sc["disclosure"]["disclosure_text"],
+                   "scenes": [{"index": x["index"], "duration_s": x["duration_s"], "narration": x["narration"],
+                               "on_screen_text": x["on_screen_text"]} for x in sc["scenes"]]}
+    out["Lines"] = {"variants": [says[1]]}
+    out["Review"] = {"score": 9, "criteria": [{"name": "mock", "score": 9, "note": "ok"}], "must_fix": []}
     return out

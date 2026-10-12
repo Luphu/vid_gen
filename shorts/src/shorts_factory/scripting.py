@@ -74,7 +74,7 @@ def narration_issues(s: Settings, script: Script, slack: float = 1.0) -> list[st
     return issues
 
 
-def _wps_values(s: Settings) -> dict:
+def wps_values(s: Settings) -> dict:
     lo, hi = narration_range(s, 6.0)
     return {"max_pause_s": s.narration_max_pause_s, "min_wps": round(lo / 6.0, 1),
             "max_wps": round(hi / 6.0, 1), "words_6s": f"{lo}-{hi}"}
@@ -125,14 +125,14 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
     msg = p.render(language=s.content_language, audience=s.target_audience, min_s=s.target_min_s,
                    max_s=s.target_max_s, min_scenes=min_scenes, max_scenes=min(10, min_scenes + 3),
                    max_scene_s=round(max_scene, 2), region="center", made_for_kids="false", format=fmt,
-                   analysis_json=prompts.untrusted(analysis_view), **_wps_values(s))
+                   analysis_json=prompts.untrusted(analysis_view), **wps_values(s))
     messages = [{"role": "user", "content": msg}]
     script, _ = text_client.structured(messages, Script, max_tokens=s.nim_text_max_tokens)
     ref = p.ref
     if s.script_punch_up:
         edit = prompts.load("punch_up_v1")
         messages = messages + [{"role": "assistant", "content": script.model_dump_json()},
-                               {"role": "user", "content": edit.render(**_wps_values(s))}]
+                               {"role": "user", "content": edit.render(**wps_values(s))}]
         out, _ = text_client.structured(messages, PunchUp, max_tokens=s.nim_text_max_tokens)
         script, ref = out.script, f"{p.ref}+{edit.ref}"
         log.info("punch-up critique: %s", "; ".join(out.critique)[:1000])

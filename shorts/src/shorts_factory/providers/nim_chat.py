@@ -28,8 +28,9 @@ class _ChatBase:
     extra_body: dict = {}
 
     def __init__(self, s: Settings, budget: BudgetGuard, url: str, model: str,
-                 client: httpx.Client | None = None, limiter: ConcurrencyLimiter | None = None):
-        self.s, self.budget, self.url, self.model = s, budget, url, model
+                 client: httpx.Client | None = None, limiter: ConcurrencyLimiter | None = None,
+                 temperature: float = 0.4):
+        self.s, self.budget, self.url, self.model, self.temperature = s, budget, url, model, temperature
         self.http = client or make_client(s.nim_connect_timeout_s, s.nim_read_timeout_s)
         self.limiter = limiter or ConcurrencyLimiter(s.nim_max_concurrency)
 
@@ -38,10 +39,10 @@ class _ChatBase:
         return {"Authorization": f"Bearer {self.s.nvidia_api_key.get_secret_value()}",  # type: ignore[union-attr]
                 "Accept": "application/json"}
 
-    def chat(self, messages: list[dict], *, max_tokens: int, temperature: float = 0.4,
+    def chat(self, messages: list[dict], *, max_tokens: int, temperature: float | None = None,
              json_mode: bool = False) -> tuple[str, str | None]:
         body: dict = {"model": self.model, "messages": messages, "max_tokens": max_tokens,
-                      "temperature": temperature, "stream": False}
+                      "temperature": self.temperature if temperature is None else temperature, "stream": False}
         body.update(self.extra_body)
         if json_mode and self.s.nim_text_response_format == "json_object":
             body["response_format"] = {"type": "json_object"}
@@ -82,8 +83,8 @@ class _ChatBase:
 class NimTextClient(_ChatBase):
     bucket = "text"
 
-    def __init__(self, s: Settings, budget: BudgetGuard, **kw):
-        super().__init__(s, budget, s.nim_text_url, s.nim_text_model, **kw)
+    def __init__(self, s: Settings, budget: BudgetGuard, model: str | None = None, **kw):
+        super().__init__(s, budget, s.nim_text_url, model or s.nim_text_model, **kw)
         if s.nim_text_disable_thinking:  # reasoning tokens are billed and discarded anyway
             self.extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
 
