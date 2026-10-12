@@ -430,6 +430,16 @@ def _stage_generate(d: Deps, job: Job) -> Job:
                 d.store.update_op(op_key, "failed", request_id=rid, detail=f"bad result: lettering: {where}"[:500])
                 log.warning("scene %d has generated lettering (%s); next attempt", sc.index, where)
                 return _stage_generate(d, d.store.get_job(job.id) or job)
+            if text and d.s.lettering_last_attempt == "review":  # may be a brand: a human decides
+                rkey = f"jobs/{job.id}/review/scene_{sc.index:02d}.mp4"
+                d.artifacts.put_file(rkey, local, "video/mp4")
+                d.store.update_op(op_key, "failed", request_id=rid, artifact_key=rkey,
+                                  detail=f"bad result: lettering on last attempt: {where}"[:500])
+                return _review(d, job, f"scene {sc.index}: lettering on the last attempt ({where}); check {rkey}. "
+                                       f"Accept: `shorts resolve-op {op_key} --note ok --artifact <file>` then "
+                                       f"`shorts retry {job.id} --stage generate`; or regenerate (billable): "
+                                       f"`shorts retry {job.id} --stage generate --regenerate-scenes {sc.index}`",
+                               None)
             if text:  # last attempt: keep it, flag it for the human reviewer instead of paying again
                 warnings.append(f"scene {sc.index}: possible lettering {where}")
                 log.warning("scene %d: lettering suspected on last attempt; accepted with warning", sc.index)

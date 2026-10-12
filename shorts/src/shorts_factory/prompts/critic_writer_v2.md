@@ -29,6 +29,7 @@ Automatic blocking defects (each one: must_fix, score <= 6):
 - it is unclear what the hero wants, or nothing stands in the way;
 - no moment that is actually funny or surprising;
 - any grammar error, made-up or misused word, calque from English, or unnatural phrasing in $language.
+- the story needs a packaged or branded product (packet, bottle, can, box, wrapper, cereal, soda).
 
 Production limits (do not demand anything beyond them): one hero, one location, one continuous take; every
 scene is ONE simple physical action that a 5-second AI clip can show — never ask for chains of several

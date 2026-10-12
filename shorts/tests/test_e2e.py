@@ -383,7 +383,7 @@ def test_lettering_in_clip_triggers_one_regeneration(settings_env):
 def test_lettering_on_last_attempt_is_accepted_with_warning(settings_env):
     from shorts_factory.qc_vision import TextCheck
 
-    d = _deps(settings_env)
+    d = _deps(settings_env, LETTERING_LAST_ATTEMPT="accept")
     answers = [False, True, True, False, False]  # keyframe ok; scene 0 flagged on both attempts
 
     class Vision:
@@ -399,3 +399,24 @@ def test_lettering_on_last_attempt_is_accepted_with_warning(settings_env):
     ops = [o for o in d.store.ops_for_job(job.id) if o["kind"] == "video_gen"]
     assert [o["status"] for o in ops][:2] == ["failed", "succeeded"] and d.video.calls == 4  # no third paid try
     assert d.store.get_stage(job.id, "generate")["warnings"][0].startswith("scene 0: possible lettering")
+
+
+def test_lettering_on_last_attempt_stops_for_review_by_default(settings_env):
+    from shorts_factory.qc_vision import TextCheck
+
+    d = _deps(settings_env)
+    answers = [False, True, True]  # keyframe ok; scene 0 flagged on both attempts
+
+    class Vision:
+        def frames_content(self, frames):
+            return []
+
+        def structured(self, messages, model_cls, *, max_tokens, context=None):
+            t = answers.pop(0)
+            return TextCheck(has_text=t, text_seen="HEINZ" if t else None), "v"
+    d.vision = Vision()
+    res = pipeline.run_once(d)
+    assert res["state"] == "review_required" and d.video.calls == 2
+    job = _job(d)
+    assert "lettering on the last attempt" in job.reason and "resolve-op" in job.reason
+    assert d.artifacts.exists(f"jobs/{job.id}/review/scene_00.mp4")

@@ -115,6 +115,9 @@ class Settings(BaseModel):
     max_keyframe_attempts: int = 3
     # Quality gates using the NVIDIA models: lettering in generated images/clips, factual claims in the script
     check_lettering: bool = True
+    # lettering still found on the last paid attempt: "review" stops for a human (it may be a brand);
+    # "accept" keeps the clip with a warning
+    lettering_last_attempt: Literal["review", "accept"] = "review"
     fact_check: bool = True
     replicate_tts_model: str = "minimax/speech-02-turbo"
     replicate_tts_voice: str = "Russian_ReliableMan"
