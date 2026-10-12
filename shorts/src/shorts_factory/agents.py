@@ -45,6 +45,7 @@ from .scripting import (
 log = logging.getLogger(__name__)
 
 ROLES = ("writer", "director", "editor")
+CRITIC_VERSION = 2  # strict calibration and automatic blocking defects
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
 
@@ -283,7 +284,7 @@ def _critique(s: Settings, client, role: str, pkg: dict, vals: dict, previous: R
     elif previous is not None:
         prev = (f"You approved the previous version with score {previous.score}. Other parts were revised since. "
                 "Lower the score only for a real blocking defect in what changed.")
-    p = prompts.load(f"critic_{role}_v1")
+    p = prompts.load(f"critic_{role}_v{CRITIC_VERSION}")
     rv, _ = client.structured([{"role": "user", "content": p.render(
         **vals, previous=prev, package_json=prompts.untrusted(view, 16000))}], Review, max_tokens=2000)
     return rv
@@ -307,12 +308,18 @@ def _provisional_edit(story: Story, hint: str) -> Edit:
 
 
 def _verdict(s: Settings, rv: Review) -> tuple[int, list[str]]:
-    """A score counts only without open blocking defects."""
-    score = rv.score if not rv.must_fix else min(rv.score, s.critic_min_score - 1)
+    """Approval needs the overall score >= CRITIC_MIN_SCORE, no open blocking defects and every criterion
+    >= CRITIC_MIN_CRITERION (a single weak criterion means the work is not ready)."""
+    weak = [c for c in rv.criteria if c.score < s.critic_min_criterion]
+    score = rv.score
+    if rv.must_fix or weak or not rv.criteria:
+        score = min(score, s.critic_min_score - 1)
     if score >= s.critic_min_score:
         return score, []
-    weak = [f"{c.name}: {c.note}" for c in rv.criteria if c.score < s.critic_min_score]
-    return score, rv.must_fix or weak or [f"critic scored {rv.score}/10; raise the quality"]
+    fixes = list(rv.must_fix) + [f"{c.name} scored {c.score}/10: {c.note}" for c in weak]
+    if not rv.criteria:
+        fixes.append("the review had no per-criterion scores")
+    return score, fixes or [f"critic scored {rv.score}/10; raise the quality"]
 
 
 class _Team:
@@ -325,7 +332,7 @@ class _Team:
         self.vals = _values(s, self.analysis_view, fmt)
         self.out: dict[str, BaseModel] = {}
         self.previous: dict[str, Review] = {}
-        self.report: dict = {"phases": {r: [] for r in ROLES}, "final": []}
+        self.report: dict = {"phases": {r: [] for r in ROLES}, "final": [], "escalations": []}
 
     def assemble(self, provisional: bool = False) -> Script:
         edit = self.out.get("editor")
@@ -376,18 +383,36 @@ def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: 
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
     team = _Team(s, agent, critic, candidate, analysis, fmt)
-    ref = "team@v2(" + ",".join(prompts.load(f"{k}_{r}_v1").ref for k in ("agent", "critic") for r in ROLES) + ")"
+    ref = "team@v2(" + ",".join([prompts.load(f"agent_{r}_v1").ref for r in ROLES]
+                                + [prompts.load(f"critic_{r}_v{CRITIC_VERSION}").ref for r in ROLES]) + ")"
     report = team.report | {"agent_model": getattr(agent, "model", "?"), "critic_model": getattr(critic, "model", "?"),
-                            "min_score": s.critic_min_score}
+                            "min_score": s.critic_min_score, "min_criterion": s.critic_min_criterion}
 
     def reject(msg: str):
         return TeamRejected(msg, report)
 
     # 1-3: each role works on locked upstream work until its critic approves
-    for role in ROLES:
-        if not team.phase(role, []):
-            raise reject(f"{role} critic did not approve after {s.agent_max_rounds} rounds: "
-                         f"{team.report['phases'][role][-1]}")
+    escalated = False
+    i = 0
+    while i < len(ROLES):
+        role = ROLES[i]
+        if team.phase(role, []):
+            i += 1
+            continue
+        last = team.report["phases"][role][-1]
+        if role == "director" and not escalated:
+            # the shots may be impossible because of the story itself: the screenwriter rewrites it once
+            escalated = True
+            notes = ["The director could not make this story filmable; the director's critic says: "
+                     + " | ".join(last.get("must_fix") or last.get("checks") or [])]
+            team.report["escalations"].append({"from": "director", "notes": notes})
+            log.info("team: director phase failed; the screenwriter rewrites the story")
+            if not team.phase("writer", notes):
+                raise reject(f"writer critic did not approve the rewrite: {team.report['phases']['writer'][-1]}")
+            del team.out["director"]
+            team.previous.pop("director", None)
+            continue
+        raise reject(f"{role} critic did not approve after {s.agent_max_rounds} rounds: {last}")
     # 4: final gate - every critic scores the final package (the exact prompts) in the same round
     for g in range(1, s.agent_final_rounds + 1):
         script = team.assemble()
