@@ -55,7 +55,7 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
         from .providers.mock import MockChat, MockImage, MockVideo, default_mock_responses
 
         chat = MockChat(default_mock_responses(s.content_language))
-        d.text = d.vision = d.analyst = chat
+        d.text = d.vision = d.analyst = d.agent = d.critic = chat
         d.video = MockVideo(ff, *_gen_size(s), budget=budget)
         d.image = MockImage(ff, *_gen_size(s), budget=budget)
     else:
@@ -65,6 +65,10 @@ def make_deps(s: Settings, store: Store | None = None) -> Deps:
         limiter = ConcurrencyLimiter(s.nim_max_concurrency)
         d.vision = NimVisionClient(s, budget, limiter=limiter) if s.nvidia_api_key else None
         d.analyst = NimTextClient(s, budget, limiter=limiter) if s.nvidia_api_key else None
+        if s.nvidia_api_key:
+            d.agent = NimTextClient(s, budget, model=s.agent_model, limiter=limiter,
+                                    temperature=s.agent_temperature)
+            d.critic = NimTextClient(s, budget, model=s.critic_model, limiter=limiter, temperature=0.0)
         if s.text_provider == "replicate":
             from .providers.replicate import ReplicateText
 

@@ -40,7 +40,7 @@ def _opt_bool(v: str | None) -> bool | None:
 class Budget(BaseModel):
     """Daily/per-job limits. Generation is disabled until a positive budget is set explicitly."""
 
-    text_requests_per_day: int = 40
+    text_requests_per_day: int = 300  # agent team: up to ~30 calls per script
     vision_requests_per_day: int = 60
     image_requests_per_day: int = 30
     tts_requests_per_day: int = 40
@@ -198,6 +198,16 @@ class Settings(BaseModel):
     narration_words_per_s: float = 2.2  # Replicate MiniMax Russian_ReliableMan, speed 1.05: ~2.0-2.4 words/s
     # Second pass of the script model as a story editor: critique the draft and rewrite it to be more gripping
     script_punch_up: bool = True
+    # "team": writer, director and editor agents on NVIDIA NIM, each with a critic; video is generated only when
+    # every critic scores the final package >= critic_min_score. "single": one script model (+ punch-up).
+    script_engine: Literal["team", "single"] = "team"
+    agent_model: str = "nvidia/nemotron-3-super-120b-a12b"
+    critic_model: str = "nvidia/nemotron-3-ultra-550b-a55b"  # a different model: no self-grading
+    critic_min_score: int = 8
+    agent_max_rounds: int = 3    # author <-> critic rounds per role
+    agent_final_rounds: int = 2  # final gate: all critics on the final package
+    agent_max_tokens: int = 4096
+    agent_temperature: float = 0.7
     # Story formats: a trend is a situation + emotion, so the new video retells one (fact lists lost the trend)
     content_formats: list[str] = Field(default_factory=lambda: [
         "неудача, паника и неожиданное решение", "превращение героя или предмета", "мини-история с поворотом в конце",

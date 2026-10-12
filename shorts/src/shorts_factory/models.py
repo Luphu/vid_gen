@@ -188,6 +188,26 @@ def _english_only(v: str | None, field: str) -> str | None:
     return v
 
 
+def check_generation_prompt(v: str) -> str:
+    _english_only(v, "generation_prompt")
+    m = _FORBIDDEN_IN_SCENE.search(v)
+    if m:
+        raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: each scene is generated "
+                         "independently, as one continuous shot, without any lettering")
+    return v
+
+
+def check_visual_field(field: str, v: str, stored: bool = False) -> str:
+    """subject / setting / visual_style: English; subject and setting without text-prone props."""
+    _english_only(v, field)
+    if field in ("subject", "setting") and not stored:  # generation-time rule only
+        m = _TEXT_PRONE.search(v)
+        if m:
+            raise ValueError(f"{field} must not contain {m.group(0)!r}: image models fill it with fake "
+                             "lettering; describe props without screens, signs or printed items")
+    return v
+
+
 class Scene(Strict):
     index: int = Field(ge=0)
     duration_s: float = Field(gt=0.9, le=20)
@@ -203,12 +223,7 @@ class Scene(Strict):
     @field_validator("generation_prompt")
     @classmethod
     def _video_safe(cls, v: str) -> str:
-        _english_only(v, "generation_prompt")
-        m = _FORBIDDEN_IN_SCENE.search(v)
-        if m:
-            raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: each scene is generated "
-                             "independently, as one continuous shot, without any lettering")
-        return v
+        return check_generation_prompt(v)
 
     @field_validator("subject_state")
     @classmethod
@@ -245,14 +260,7 @@ class Script(Strict):
     @field_validator("subject", "visual_style", "setting")
     @classmethod
     def _visual_fields_en(cls, v: str, info) -> str:
-        _english_only(v, info.field_name)
-        stored = bool(info.context and info.context.get("stored"))
-        if info.field_name in ("subject", "setting") and not stored:  # generation-time rule only
-            m = _TEXT_PRONE.search(v)
-            if m:
-                raise ValueError(f"{info.field_name} must not contain {m.group(0)!r}: image models fill it with fake "
-                                 "lettering; describe props without screens, signs or printed items")
-        return v
+        return check_visual_field(info.field_name, v, stored=bool(info.context and info.context.get("stored")))
 
     @field_validator("title")
     @classmethod

@@ -22,6 +22,7 @@ from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
+from .agents import TeamRejected, write_with_team
 from .analysis import analyze_full_media, analyze_metadata_only, analyze_public_signals
 from .budget import BudgetGuard
 from .config import ConfigError, Settings
@@ -78,6 +79,8 @@ class Deps:
     text: Any = None
     vision: Any = None
     analyst: Any = None  # NVIDIA text model: plot beats from public signals, fact-check of scripts
+    agent: Any = None    # SCRIPT_ENGINE=team: writer/director/editor model (NVIDIA)
+    critic: Any = None   # SCRIPT_ENGINE=team: critics (a different NVIDIA model)
     image: Any = None    # text-to-image for the i2v_chain keyframe
     video: Any = None
     tts: TTS | None = None
@@ -259,18 +262,29 @@ def stage_script(d: Deps, job: Job) -> Job:
     a = d.store.get_stage(job.id, "analysis")
     cand = Candidate.model_validate(d.store.get_candidate(job.video_id or "") or {})
     analysis = Analysis.model_validate(a["analysis"])  # type: ignore[index]
-    if d.text is None:
+    team = d.s.script_engine == "team"
+    if team and (d.agent is None or d.critic is None):
+        raise ConfigError("SCRIPT_ENGINE=team needs NVIDIA_API_KEY (agents and critics run on NVIDIA NIM)")
+    if not team and d.text is None:
         raise ConfigError("text provider not configured (REPLICATE_API_TOKEN or TEXT_PROVIDER=nvidia)")
     fmt = pick_format(d.s, job.id)
+    report = None
     try:
-        script, pref = generate_script(d.s, d.text, cand, analysis, fmt, checker=d.analyst)
+        if team:
+            script, pref, report = write_with_team(d.s, d.agent, d.critic, cand, analysis, fmt, checker=d.analyst)
+        else:
+            script, pref = generate_script(d.s, d.text, cand, analysis, fmt, checker=d.analyst)
+    except TeamRejected as e:  # no video is generated for a script the critics did not approve
+        return _review(d, job, f"script rejected: {e}; retry with `shorts retry {job.id} --stage script`", None,
+                       "script_review", {"team": e.report})
     except (ScriptRejected, StructuredOutputError) as e:
         return _review(d, job, f"script rejected: {e}; retry with `shorts retry {job.id} --stage script`", None)
     except BudgetExceeded as e:
         raise Deferred(str(e)) from e
     return d.store.transition(job, JobState.SCRIPTED, stage="script",
                               payload={"script": script.model_dump(mode="json"), "prompt": pref, "format": fmt,
-                                       "model": getattr(d.text, "model", "?")})
+                                       "model": getattr(d.agent if team else d.text, "model", "?"),
+                                       "team": report})
 
 
 def _scene_ops(d: Deps, job: Job, idx: int) -> list[dict]:
