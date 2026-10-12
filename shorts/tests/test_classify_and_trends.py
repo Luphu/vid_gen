@@ -170,3 +170,19 @@ def test_language_filter_uses_metadata_then_title_script():
     assert not language_ok(c("আয়ান ফাতেমার নতুন বন্ধু 🥰"), ["ru", "en"])
     assert not language_ok(c("Any title", "bn"), ["ru", "en"]) and language_ok(c("x", "ru-RU"), ["ru"])
     assert language_ok(c("আয়ান"), [])
+
+
+def test_selection_skips_stored_candidates_in_other_languages():
+    from datetime import UTC, datetime
+
+    from shorts_factory.config import load_settings
+    from shorts_factory.models import Candidate
+    from shorts_factory.pipeline import select_candidate
+
+    now = datetime.now(UTC)
+    ru = Candidate(video_id="ruuuuuuuuuu", title="Мультик про кота", channel_id="UC1", published_at=now,
+                   fetched_at=now, view_count=10**7)
+    en = Candidate(video_id="ennnnnnnnnn", title="Cat cartoon", channel_id="UC2", published_at=now,
+                   fetched_at=now, view_count=10**5)
+    s = load_settings({"SELECT_REQUIRE_AI": "false", "TREND_LANGUAGES": "en"})
+    assert select_candidate(s, [ru, en]).video_id == "ennnnnnnnnn"

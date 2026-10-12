@@ -107,12 +107,12 @@ def pick_format(s: Settings, key: str) -> str:
     """Deterministic per job, rotates across jobs to avoid one repeated template."""
     import hashlib
 
-    formats = s.content_formats or ["короткий ролик"]
+    formats = s.content_formats or ["a short story"]
     return formats[int(hashlib.sha256(key.encode()).hexdigest(), 16) % len(formats)]
 
 
 def generate_script(s: Settings, text_client, candidate: Candidate, analysis: Analysis,
-                    fmt: str = "короткий ролик", checker=None) -> tuple[Script, str]:
+                    fmt: str = "a short story", checker=None) -> tuple[Script, str]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
     p = prompts.load("script_v6")

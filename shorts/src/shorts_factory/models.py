@@ -264,7 +264,7 @@ class Script(Strict):
     # One shared English visual style line (lighting, palette, lens, realism) for all scenes.
     visual_style: str = Field(min_length=10, max_length=250)
     # English: where the story happens (the opening keyframe shows the subject here).
-    setting: str = Field(min_length=10, max_length=300)
+    setting: str = Field(min_length=10, max_length=500)
     # Which core situation/emotion of the reference trend this video keeps (with new characters and story).
     trend_link: str = Field(min_length=10, max_length=400)
     scenes: list[Scene] = Field(min_length=1, max_length=10)

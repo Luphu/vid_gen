@@ -120,7 +120,7 @@ class Settings(BaseModel):
     lettering_last_attempt: Literal["review", "accept"] = "review"
     fact_check: bool = True
     replicate_tts_model: str = "minimax/speech-02-turbo"
-    replicate_tts_voice: str = "Russian_ReliableMan"
+    replicate_tts_voice: str = "English_Deep-VoicedGentleman"  # voice id from the model schema
     replicate_poll_interval_s: float = 3.0
 
     budget: Budget = Field(default_factory=Budget)
@@ -191,14 +191,16 @@ class Settings(BaseModel):
     font_file: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
     # Content
-    content_language: str = "ru"
-    target_audience: str = "широкая аудитория 13+, интересующаяся технологиями и необычными фактами; не детский контент"
+    content_language: str = "en"
+    target_audience: str = ("general audience 13+, families and teens who enjoy funny, surprising short stories; "
+                            "not made for kids")
     tts_provider: Literal["none", "mock", "replicate"] = "none"
     # Voice-over runs through the whole video: it never pauses longer than this (between phrases or scenes).
     # The script must carry enough words per scene (speech rate below), TTS trims its own silences and QC
     # measures the pauses in the narration track (limit + 0.5 s).
     narration_max_pause_s: float = 1.5
-    narration_words_per_s: float = 2.2  # Replicate MiniMax Russian_ReliableMan, speed 1.05: ~2.0-2.4 words/s
+    # speech rate of the TTS voice: English ~2.6 words/s; Russian_ReliableMan measured 2.2-2.9 (set 2.2 for ru)
+    narration_words_per_s: float = 2.6
     # Second pass of the script model as a story editor: critique the draft and rewrite it to be more gripping
     script_punch_up: bool = True
     # "team": writer, director and editor agents on NVIDIA NIM, each with a critic; video is generated only when
@@ -214,8 +216,9 @@ class Settings(BaseModel):
     agent_temperature: float = 0.7
     # Story formats: a trend is a situation + emotion, so the new video retells one (fact lists lost the trend)
     content_formats: list[str] = Field(default_factory=lambda: [
-        "неудача, паника и неожиданное решение", "превращение героя или предмета", "мини-история с поворотом в конце",
-        "соревнование или спор с неожиданным победителем", "маленький герой против большой проблемы"])
+        "a mishap, panic and an unexpected fix", "a transformation of the hero or an object",
+        "a mini story with a twist at the end", "a contest or a bet with an unexpected winner",
+        "a small hero against a big problem"])
     trend_refresh_hours: int = 12  # reuse unused candidates fetched within this window instead of searching again
     music_file_key: str = ""  # storage key of a licensed track; its manifest must exist next to it
 

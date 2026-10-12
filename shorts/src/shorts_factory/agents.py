@@ -45,7 +45,9 @@ from .scripting import (
 log = logging.getLogger(__name__)
 
 ROLES = ("writer", "director", "editor")
-CRITIC_VERSION = 2  # strict calibration and automatic blocking defects
+# prompt versions per role (prompts/agent_<role>_v<N>.md, prompts/critic_<role>_v<N>.md)
+AGENT_VERSIONS = {"writer": 1, "director": 2, "editor": 2}
+CRITIC_VERSIONS = {"writer": 2, "director": 4, "editor": 3}
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
 
@@ -92,7 +94,7 @@ class Shot(_Loose):
 
 class ShotPlan(_Loose):
     subject: str = Field(min_length=15, max_length=400)
-    setting: str = Field(min_length=10, max_length=300)
+    setting: str = Field(min_length=10, max_length=500)
     visual_style: str = Field(min_length=10, max_length=250)
     scenes: list[Shot] = Field(min_length=1, max_length=10)
 
@@ -246,7 +248,7 @@ def _author(s: Settings, client, role: str, vals: dict, out: dict, notes: list[s
                 {"story": out["writer"].model_dump(), "shots": out["director"].model_dump(),
                  "narration_word_targets": _word_targets(s, out["writer"])}, 16000)
                 if "director" in out else ""}}[role]
-    p = prompts.load(f"agent_{role}_v1")
+    p = prompts.load(f"agent_{role}_v{AGENT_VERSIONS[role]}")
     messages = [{"role": "user", "content": p.render(**vals, **data)}]
     prev = out.get(role)
     if prev is not None:
@@ -284,7 +286,7 @@ def _critique(s: Settings, client, role: str, pkg: dict, vals: dict, previous: R
     elif previous is not None:
         prev = (f"You approved the previous version with score {previous.score}. Other parts were revised since. "
                 "Lower the score only for a real blocking defect in what changed.")
-    p = prompts.load(f"critic_{role}_v{CRITIC_VERSION}")
+    p = prompts.load(f"critic_{role}_v{CRITIC_VERSIONS[role]}")
     rv, _ = client.structured([{"role": "user", "content": p.render(
         **vals, previous=prev, package_json=prompts.untrusted(view, 16000))}], Review, max_tokens=2000)
     return rv
@@ -296,6 +298,12 @@ def _code_checks(s: Settings, script: Script, candidate: Candidate, analysis: An
     found = script.check_limits(s.target_min_s, s.target_max_s, max_scene) + narration_issues(s, script)
     found += [f"scene {sc.index} lasts {sc.duration_s}s; every scene needs at least {MIN_SCENE_S}s"
               for sc in script.scenes if sc.duration_s < MIN_SCENE_S]
+    for sc in script.scenes:  # on-screen text must add something, not caption the voice-over
+        text = set(re.findall(r"\w+", sc.on_screen_text.lower()))
+        said = set(re.findall(r"\w+", sc.narration.lower()))
+        if len(text) >= 2 and len(text & said) / len(text) >= 0.75:
+            found.append(f"scene {sc.index}: on-screen text '{sc.on_screen_text}' repeats the narration; "
+                         "show the emotion or what is visible instead")
     return found + ["originality: " + i for i in originality_issues(script, candidate, analysis)]
 
 
@@ -383,8 +391,8 @@ def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: 
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
     team = _Team(s, agent, critic, candidate, analysis, fmt)
-    ref = "team@v2(" + ",".join([prompts.load(f"agent_{r}_v1").ref for r in ROLES]
-                                + [prompts.load(f"critic_{r}_v{CRITIC_VERSION}").ref for r in ROLES]) + ")"
+    ref = "team@v2(" + ",".join([prompts.load(f"agent_{r}_v{AGENT_VERSIONS[r]}").ref for r in ROLES]
+                                + [prompts.load(f"critic_{r}_v{CRITIC_VERSIONS[r]}").ref for r in ROLES]) + ")"
     report = team.report | {"agent_model": getattr(agent, "model", "?"), "critic_model": getattr(critic, "model", "?"),
                             "min_score": s.critic_min_score, "min_criterion": s.critic_min_criterion}
 
