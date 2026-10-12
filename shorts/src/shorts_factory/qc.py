@@ -34,11 +34,16 @@ def check_scene(s: Settings, ff: FF, path: Path, expected_s: float) -> QCReport:
                     width=v.get("width"), height=v.get("height"))
 
 
-def check_final(s: Settings, ff: FF, path: Path, expect_audio: bool, avg_shot_s: float | None = None) -> QCReport:
+def check_final(s: Settings, ff: FF, path: Path, expect_audio: bool, avg_shot_s: float | None = None,
+                narration_pause_s: float | None = None) -> QCReport:
     checks: list[QCCheck] = []
     if avg_shot_s is not None:
         checks.append(QCCheck(name="pacing", ok=avg_shot_s <= s.edit_max_avg_shot_s,
                               detail=f"average shot {avg_shot_s:.2f}s (max {s.edit_max_avg_shot_s}s)"))
+    if narration_pause_s is not None:
+        limit = s.narration_max_pause_s + 0.5
+        checks.append(QCCheck(name="narration_pauses", ok=narration_pause_s <= limit,
+                              detail=f"longest voice-over pause {narration_pause_s:.2f}s (max {limit:.1f}s)"))
     size = path.stat().st_size if path.is_file() else 0
     checks.append(QCCheck(name="size", ok=0 < size <= s.max_output_bytes,
                           detail=f"{size} bytes (max {s.max_output_bytes})"))

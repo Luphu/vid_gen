@@ -201,7 +201,7 @@ def test_fact_check_repairs_then_rejects():
     from shorts_factory.models import Candidate
     from shorts_factory.scripting import ScriptRejected, generate_script
 
-    s = load_settings({"CONTENT_LANGUAGE": "ru"})
+    s = load_settings({"CONTENT_LANGUAGE": "ru", "SCRIPT_PUNCH_UP": "false"})
     cand = Candidate(video_id="abcdefghijk", title="Котик красит забор", channel_id="UCx",
                      published_at=datetime.now(UTC), fetched_at=datetime.now(UTC))
     an = Analysis(mode="metadata_only", video_id="abcdefghijk", topic="t", sources=["api"])
@@ -212,7 +212,7 @@ def test_fact_check_repairs_then_rejects():
     assert text.calls[1][-2]["role"] == "assistant"
     with pytest.raises(ScriptRejected, match="fact-check"):
         generate_script(s, _Seq(SCRIPT, SCRIPT), cand, an, "x", checker=_Seq(_fc("uncertain"), _fc("false")))
-    no_check = load_settings({"CONTENT_LANGUAGE": "ru", "FACT_CHECK": "false"})
+    no_check = load_settings({"CONTENT_LANGUAGE": "ru", "FACT_CHECK": "false", "SCRIPT_PUNCH_UP": "false"})
     generate_script(no_check, _Seq(SCRIPT), cand, an, "x", checker=_Seq())
 
 
@@ -250,3 +250,31 @@ def test_stored_scripts_load_without_newer_generation_rules():
     with pytest.raises(ValidationError):
         Script.model_validate(data)
     assert Script.model_validate(data, context={"stored": True}).setting.startswith("a lab")
+
+
+def test_punch_up_then_voice_over_density_is_enforced():
+    from datetime import UTC, datetime
+
+    from shorts_factory.config import load_settings
+    from shorts_factory.models import Candidate
+    from shorts_factory.scripting import ScriptRejected, generate_script, narration_range
+
+    s = load_settings({"CONTENT_LANGUAGE": "ru", "TTS_PROVIDER": "mock", "FACT_CHECK": "false"})
+    assert narration_range(s, 6) == (10, 16)  # 2.2 words/s, pause <= 1.5 s
+    cand = Candidate(video_id="abcdefghijk", title="Котик красит забор", channel_id="UCx",
+                     published_at=datetime.now(UTC), fetched_at=datetime.now(UTC))
+    an = Analysis(mode="metadata_only", video_id="abcdefghijk", topic="t", sources=["api"])
+    terse = copy.deepcopy(SCRIPT)
+    terse["scenes"][1]["narration"] = "Робот находит карандаш."  # 3 words for 6 s -> 4.6 s of silence
+    text = _Seq(terse, {"critique": ["weak hook"], "script": terse}, SCRIPT)
+    script, ref = generate_script(s, text, cand, an, "x")
+    assert ref == "script@v6+punch_up@v1" and script.scenes[1].narration == SCRIPT["scenes"][1]["narration"]
+    assert "story editor" in text.calls[1][-1]["content"] and text.calls[1][-2]["role"] == "assistant"
+    assert "scene 1 narration has 3 words, needs 10-16" in text.calls[2][-1]["content"]
+    near = copy.deepcopy(SCRIPT)
+    near["scenes"][1]["narration"] = "Робот замечает сломанный карандаш и понимает: тот скоро пропадёт."  # 9 of 10
+    generate_script(s, _Seq(near, {"critique": [], "script": near}, near), cand, an, "x")  # repaired once, kept
+    with pytest.raises(ScriptRejected, match="scene 1 narration"):
+        generate_script(s, _Seq(terse, {"critique": [], "script": terse}, terse), cand, an, "x")
+    silent = load_settings({"CONTENT_LANGUAGE": "ru", "FACT_CHECK": "false", "SCRIPT_PUNCH_UP": "false"})
+    generate_script(silent, _Seq(terse), cand, an, "x")  # no TTS -> no voice-over rule

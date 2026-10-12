@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import math
 import re
 from typing import Literal
 
@@ -10,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import prompts
 from .config import Settings
 from .models import Analysis, Candidate, Script
+
+log = logging.getLogger(__name__)
 
 
 class ScriptRejected(RuntimeError):
@@ -40,6 +44,40 @@ def fact_check(checker, script: Script) -> FactCheck:
     out, _ = checker.structured([{"role": "user", "content": p.render(
         language=script.language, script_json=prompts.untrusted(view, 6000))}], FactCheck, max_tokens=1500)
     return out
+
+
+class PunchUp(BaseModel):
+    """Story-editor pass: critique of the draft plus the rewritten script."""
+
+    model_config = ConfigDict(extra="ignore")
+    critique: list[str] = Field(default_factory=list, max_length=30)
+    script: Script
+
+
+def narration_range(s: Settings, duration_s: float) -> tuple[int, int]:
+    """Words a scene needs so the voice-over pauses at most narration_max_pause_s (and still fits by atempo)."""
+    wps = s.narration_words_per_s
+    return math.ceil(wps * max(0.0, duration_s - s.narration_max_pause_s)), math.floor(wps * duration_s * 1.25)
+
+
+def narration_issues(s: Settings, script: Script, slack: float = 1.0) -> list[str]:
+    """``slack`` < 1 tolerates a slightly short scene: words/s is an estimate, the rendered pause is measured."""
+    if s.tts_provider == "none":
+        return []
+    issues = []
+    for sc in script.scenes:
+        lo, hi = narration_range(s, sc.duration_s)
+        n = len(re.findall(r"\w+", sc.narration))
+        if not math.floor(lo * slack) <= n <= hi:
+            issues.append(f"scene {sc.index} narration has {n} words, needs {lo}-{hi} for {sc.duration_s}s "
+                          f"(the voice-over must not pause longer than {s.narration_max_pause_s}s)")
+    return issues
+
+
+def _wps_values(s: Settings) -> dict:
+    lo, hi = narration_range(s, 6.0)
+    return {"max_pause_s": s.narration_max_pause_s, "min_wps": round(lo / 6.0, 1),
+            "max_wps": round(hi / 6.0, 1), "words_6s": f"{lo}-{hi}"}
 
 
 def _shingles(text: str, n: int = 4) -> set[tuple[str, ...]]:
@@ -77,7 +115,7 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
                     fmt: str = "короткий ролик", checker=None) -> tuple[Script, str]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
-    p = prompts.load("script_v5")
+    p = prompts.load("script_v6")
     max_scene = min(s.max_scene_seconds, 20.0)
     min_scenes = max(1, int(-(-s.target_min_s // max_scene)))  # ceil
     analysis_view = analysis.model_dump(include={
@@ -87,15 +125,28 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
     msg = p.render(language=s.content_language, audience=s.target_audience, min_s=s.target_min_s,
                    max_s=s.target_max_s, min_scenes=min_scenes, max_scenes=min(10, min_scenes + 3),
                    max_scene_s=round(max_scene, 2), region="center", made_for_kids="false", format=fmt,
-                   analysis_json=prompts.untrusted(analysis_view))
+                   analysis_json=prompts.untrusted(analysis_view), **_wps_values(s))
     messages = [{"role": "user", "content": msg}]
     script, _ = text_client.structured(messages, Script, max_tokens=s.nim_text_max_tokens)
-    errors = script.check_limits(s.target_min_s, s.target_max_s, max_scene)
+    ref = p.ref
+    if s.script_punch_up:
+        edit = prompts.load("punch_up_v1")
+        messages = messages + [{"role": "assistant", "content": script.model_dump_json()},
+                               {"role": "user", "content": edit.render(**_wps_values(s))}]
+        out, _ = text_client.structured(messages, PunchUp, max_tokens=s.nim_text_max_tokens)
+        script, ref = out.script, f"{p.ref}+{edit.ref}"
+        log.info("punch-up critique: %s", "; ".join(out.critique)[:1000])
+
+    def problems(sc: Script, slack: float = 0.85) -> list[str]:
+        return sc.check_limits(s.target_min_s, s.target_max_s, max_scene) + narration_issues(s, sc, slack)
+
+    errors = problems(script, 1.0)
     if errors:
-        retry = messages + [{"role": "user", "content": "Previous answer violated limits: " + "; ".join(errors)
-                             + ". Return a corrected full JSON object."}]
+        retry = messages[:1] + [{"role": "assistant", "content": script.model_dump_json()},
+                                {"role": "user", "content": "This script violates limits: " + "; ".join(errors)
+                                 + ". Fix only that and return the corrected full JSON object."}]
         script, _ = text_client.structured(retry, Script, max_tokens=s.nim_text_max_tokens)
-        errors = script.check_limits(s.target_min_s, s.target_max_s, max_scene)
+        errors = problems(script)
         if errors:
             raise ScriptRejected("; ".join(errors))
     if script.language.lower()[:2] != s.content_language.lower()[:2]:
@@ -107,18 +158,19 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
         fc = fact_check(checker, script)
         if fc.problems:
             listed = "; ".join(f"«{c.text}» — {c.verdict}: {c.reason}" for c in fc.problems)
-            retry = messages + [{"role": "assistant", "content": script.model_dump_json()},
-                                {"role": "user", "content": "A fact-checker rejected these statements: " + listed
-                                 + ". Rewrite them so that nothing false or doubtful is stated as real-world fact"
-                                 " (tell it as a story instead). Return the full corrected JSON object."}]
+            retry = messages[:1] + [{"role": "assistant", "content": script.model_dump_json()},
+                                    {"role": "user", "content": "A fact-checker rejected these statements: "
+                                     + listed + ". Rewrite them so that nothing false or doubtful is stated as"
+                                     " real-world fact (tell it as a story instead). Keep the voice-over length"
+                                     " of every scene. Return the full corrected JSON object."}]
             script, _ = text_client.structured(retry, Script, max_tokens=s.nim_text_max_tokens)
-            errors = script.check_limits(s.target_min_s, s.target_max_s, max_scene)
+            errors = problems(script)
             if errors:
                 raise ScriptRejected("; ".join(errors))
             fc = fact_check(checker, script)
             if fc.problems:
                 raise ScriptRejected("fact-check: " + "; ".join(f"«{c.text}» ({c.verdict})" for c in fc.problems))
-    return script, p.ref
+    return script, ref
 
 
 def compose_keyframe_prompt(script: Script) -> str:

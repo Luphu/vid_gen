@@ -79,6 +79,15 @@ class FF:
                   "-frames:v", str(n), "-q:v", "4", str(out_dir / "f%03d.jpg")])
         return sorted(out_dir.glob("f*.jpg"))
 
+    def longest_silence(self, path: Path, noise_db: float = -40, min_s: float = 0.3) -> float:
+        """Longest silent stretch of an audio file (including its start and end)."""
+        err = self.run(["-i", str(path), "-vn", "-af", f"silencedetect=n={noise_db}dB:d={min_s}", "-f", "null", "-"])
+        found = [float(x) for x in re.findall(r"silence_duration:\s*([\d.]+)", err)]
+        starts = re.findall(r"silence_start:\s*(-?[\d.]+)", err)
+        if len(starts) > len(found):  # silence runs to the end of the file: no silence_end line
+            found.append(max(0.0, duration_of(self.probe(path)) - float(starts[-1])))
+        return max(found, default=0.0)
+
     def mean_volume_db(self, path: Path) -> float | None:
         err = self.run(["-i", str(path), "-vn", "-af", "volumedetect", "-f", "null", "-"])
         m = re.search(r"mean_volume:\s*(-?[\d.]+) dB", err)

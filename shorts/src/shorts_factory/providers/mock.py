@@ -116,8 +116,11 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
              "creasing open one by one, slow dolly-in from a low angle")
     walk = ("The robot walks across the desk between pencils and stops beside a broken pencil, "
             "camera tracking at desk level")
+    says = ["Обычная тетрадь на столе. Почти обычная: у неё вдруг выросли руки.",
+            "Робот замечает сломанный карандаш и понимает, что без помощи тот пропадёт.",
+            "Он сжимает половинки изо всех сил, и трещина исчезает за секунду."]
     fix = "The robot presses the two halves of the pencil together and the crack closes, close-up, slow push-in"
-    return {
+    out = {
         "MetaOut": {"topic": "Тест: короткие ИИ-ролики о необычных предметах",
                     "hook": "по названию: обещание неожиданного превращения", "confidence": "low",
                     "audience_interest_hypothesis": "гипотеза: интерес к визуальным трансформациям"},
@@ -153,16 +156,16 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
                             "muted natural colours",
             "scenes": [
                 {"index": 0, "duration_s": 6, "generation_prompt": scene, "negative_prompt": None,
-                 "narration": "Обычная тетрадь. Почти.", "on_screen_text": "Тетрадь оживает",
+                 "narration": says[0], "on_screen_text": "Тетрадь оживает",
                  "important_region": "center"},
                 {"index": 1, "duration_s": 6, "generation_prompt": walk,
-                 "negative_prompt": None, "narration": "Робот находит сломанный карандаш.",
+                 "negative_prompt": None, "narration": says[1],
                  "on_screen_text": "Находка", "important_region": "center"},
                 {"index": 2, "duration_s": 6, "generation_prompt": fix,
-                 "negative_prompt": None, "narration": "И чинит его за секунду.",
+                 "negative_prompt": None, "narration": says[2],
                  "on_screen_text": "Готово!", "important_region": "center"},
             ],
-            "narration": "Обычная тетрадь. Почти. Робот находит сломанный карандаш. И чинит его за секунду.",
+            "narration": " ".join(says),
             "title": "Бумажный робот чинит карандаш",
             "description": "Короткая история о бумажном роботе. Видеоряд сгенерирован ИИ.",
             "tags": ["ai", "shorts", "paper robot"],
@@ -170,3 +173,5 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
                            "disclosure_text": "Видеоряд сгенерирован ИИ"},
         },
     }
+    out["PunchUp"] = {"critique": ["mock: hook is fine"], "script": out["Script"]}
+    return out

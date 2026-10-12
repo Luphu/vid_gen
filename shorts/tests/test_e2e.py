@@ -47,7 +47,7 @@ def test_dry_run_end_to_end(settings_env):
     an = d.store.get_stage(job.id, "analysis")["analysis"]
     assert an["mode"] == "metadata_only" and an["pacing"] is None and an["limitations"]
     sc = d.store.get_stage(job.id, "script")
-    assert sc["prompt"] == "script@v5" and sc["format"] in d.s.content_formats
+    assert sc["prompt"] == "script@v6+punch_up@v1" and sc["format"] in d.s.content_formats
     qc = d.store.get_stage(job.id, "validate")["qc"]
     assert qc["ok"], qc
     assert qc["width"] == 360 and qc["height"] == 640 and qc["has_audio"] is True  # mock TTS narration
@@ -261,6 +261,22 @@ def test_failed_job_does_not_block_a_new_one_same_day(settings_env):
     assert pipeline.run_once(d)["status"] == "no_candidate"
 
 
+def test_longest_silence_and_pause_gate(settings, tmp_path):
+    ff = FF()
+    wav = tmp_path / "n.wav"
+    ff.run(["-f", "lavfi", "-i", "sine=f=300:d=1", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2.5",
+            "-f", "lavfi", "-i", "sine=f=300:d=1", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.8",
+            "-filter_complex", "[0][1][2][3]concat=n=4:v=0:a=1", str(wav)])
+    assert 2.3 < ff.longest_silence(wav) < 2.7
+    land = tmp_path / "v.mp4"
+    ff.run(["-f", "lavfi", "-i", "testsrc2=size=360x640:rate=30:duration=16", "-c:v", "libx264",
+            "-pix_fmt", "yuv420p", str(land)])
+    bad = check_final(settings, ff, land, expect_audio=False, narration_pause_s=2.6)
+    assert any(f.startswith("narration_pauses") for f in bad.failures)
+    good = check_final(settings, ff, land, expect_audio=False, narration_pause_s=1.4)
+    assert not any(f.startswith("narration_pauses") for f in good.failures)
+
+
 def test_kids_trend_public_signals_dynamic_edit(settings_env):
     from .conftest import EXAMPLES
 
@@ -277,6 +293,8 @@ def test_kids_trend_public_signals_dynamic_edit(settings_env):
     assert edit["shots"] >= 9 and edit["avg_shot_s"] <= 2.0 and edit["first_shot_s"] == 1.2
     qc = d.store.get_stage(job.id, "validate")["qc"]
     assert any(c["name"] == "pacing" and c["ok"] for c in qc["checks"])
+    assert 0 < edit["narration_max_pause_s"] <= 1.5  # mock voice: 11 words ≈ 5 s per 6 s scene
+    assert any(c["name"] == "narration_pauses" and c["ok"] for c in qc["checks"])
 
 
 def test_render_recovers_empty_narration_and_blocks_on_broken_clip(settings_env, monkeypatch):

@@ -14,7 +14,7 @@
       "generation_prompt": "The robot unfolds itself out of a blank notebook page on a wooden desk, its paper limbs creasing open one by one, slow dolly-in from a low angle",
       "subject_state": null,
       "negative_prompt": null,
-      "narration": "Обычная тетрадь. Почти.",
+      "narration": "Обычная тетрадь на столе. Почти обычная: у неё вдруг выросли руки.",
       "on_screen_text": "Тетрадь оживает",
       "important_region": "center"
     },
@@ -24,7 +24,7 @@
       "generation_prompt": "The robot walks across the desk between pencils and stops beside a broken pencil, camera tracking at desk level",
       "subject_state": null,
       "negative_prompt": null,
-      "narration": "Робот находит сломанный карандаш.",
+      "narration": "Робот замечает сломанный карандаш и понимает, что без помощи тот пропадёт.",
       "on_screen_text": "Находка",
       "important_region": "center"
     },
@@ -34,12 +34,12 @@
       "generation_prompt": "The robot presses the two halves of the pencil together and the crack closes, close-up, slow push-in",
       "subject_state": null,
       "negative_prompt": null,
-      "narration": "И чинит его за секунду.",
+      "narration": "Он сжимает половинки изо всех сил, и трещина исчезает за секунду.",
       "on_screen_text": "Готово!",
       "important_region": "center"
     }
   ],
-  "narration": "Обычная тетрадь. Почти. Робот находит сломанный карандаш. И чинит его за секунду.",
+  "narration": "Обычная тетрадь на столе. Почти обычная: у неё вдруг выросли руки. Робот замечает сломанный карандаш и понимает, что без помощи тот пропадёт. Он сжимает половинки изо всех сил, и трещина исчезает за секунду.",
   "title": "Бумажный робот чинит карандаш",
   "description": "Короткая история о бумажном роботе. Видеоряд сгенерирован ИИ.",
   "tags": [
