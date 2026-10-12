@@ -131,3 +131,29 @@ def test_invalid_author_output_gets_one_more_attempt():
     agent = Flaky()
     write_with_team(_s(), agent, Fake(), CAND, AN, "x")
     assert agent.roles()[:3] == ["Story", "ShotPlan", "ShotPlan"] and "'the same'" in agent.calls[2][1][-1]["content"]
+
+
+def test_one_weak_criterion_blocks_approval_even_with_a_high_score():
+    weak = {"score": 9, "criteria": [{"name": "hook", "score": 9, "note": "ok"},
+                                     {"name": "language", "score": 6, "note": "«высокой пять» is not Russian"}],
+            "must_fix": []}
+    agent, critic = Fake(), Fake(Review=[weak, _rv(9)])
+    _, ref, report = write_with_team(_s(), agent, critic, CAND, AN, "x")
+    w = report["phases"]["writer"]
+    assert w[0]["score"] == 7 and "language scored 6/10" in w[0]["must_fix"][0] and w[1]["score"] == 9
+    assert "высокой пять" in agent.calls[1][1][-1]["content"] and "critic_writer@v2" in ref
+    with pytest.raises(TeamRejected):  # a review without per-criterion scores is not an approval
+        write_with_team(_s(), Fake(), Fake(Review=[{"score": 10, "criteria": [], "must_fix": []}]), CAND, AN, "x")
+
+
+def test_infeasible_story_goes_back_to_the_writer_once():
+    no = _rv(4, "scene 0: oranges bouncing off a lamppost cannot be rendered")
+    # writer ok, director fails 3x, writer rewrite ok, director ok, editor ok, final gate
+    critic = Fake(Review=[_rv(9), no, no, no, _rv(9), _rv(9), _rv(9)])
+    agent = Fake()
+    _, _, report = write_with_team(_s(), agent, critic, CAND, AN, "x")
+    assert agent.roles() == ["Story", "ShotPlan", "ShotPlan", "ShotPlan", "Story", "ShotPlan", "Edit"]
+    assert "could not make this story filmable" in agent.calls[4][1][-1]["content"]
+    assert "lamppost" in agent.calls[4][1][-1]["content"] and report["escalations"]
+    # the fresh director plan starts from the new story, not as a revision of the rejected one
+    assert agent.calls[5][1][-1]["role"] == "user" and len(agent.calls[5][1]) == 1

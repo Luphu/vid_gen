@@ -25,7 +25,9 @@ Storytelling:
 - Physical constraints of the video: ONE hero (a person, animal or creature like the reference's heroes) and
   ONE location for the whole story, filmed as one continuous take split into scenes; each scene is ONE simple
   physical action of the hero that a 5-second AI clip can show (no chains of actions, at most one other simple
-  character); a cause in one scene, its effect in the next. No screens, signs, books or printed things in the story.
+  character); a cause in one scene, its effect in the next.
+  AI video cannot do physics tricks: no thrown, bouncing, juggled or wind-blown objects interacting with each
+  other, no liquids pouring precisely, no crowds. Prefer the hero's body, face and simple props held or touched. No screens, signs, books or printed things in the story.
 
 Timing: $min_scenes–$max_scenes scenes, each <= $max_scene_s s, total $min_s–$max_s s. Voice-over is continuous:
 each scene's narration has $min_wps–$max_wps words per second of the scene (6 s: $words_6s words).
