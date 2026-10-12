@@ -322,7 +322,8 @@ def test_i2v_chain_keyframe_and_lettering_retry(settings_env):
 
         def structured(self, messages, model_cls, *, max_tokens, context=None):
             assert model_cls is TextCheck
-            return TextCheck(has_text=answers.pop(0), where="engraved code"), "v"
+            t = answers.pop(0)
+            return TextCheck(has_text=t, text_seen="A12" if t else None, where="engraved code"), "v"
     d.vision = Vision()
     starts = []
     real_generate = d.video.generate
@@ -352,8 +353,30 @@ def test_lettering_in_clip_triggers_one_regeneration(settings_env):
             return []
 
         def structured(self, messages, model_cls, *, max_tokens, context=None):
-            return TextCheck(has_text=answers.pop(0)), "v"
+            t = answers.pop(0)
+            return TextCheck(has_text=t, text_seen="XY" if t else None), "v"
     d.vision = Vision()
     assert pipeline.run_once(d)["state"] == "done_dry_run"
     ops = [o for o in d.store.ops_for_job(_job(d).id) if o["kind"] == "video_gen"]
     assert [o["status"] for o in ops][:2] == ["failed", "succeeded"] and "lettering" in ops[0]["detail"]
+
+
+def test_lettering_on_last_attempt_is_accepted_with_warning(settings_env):
+    from shorts_factory.qc_vision import TextCheck
+
+    d = _deps(settings_env)
+    answers = [False, True, True, False, False]  # keyframe ok; scene 0 flagged on both attempts
+
+    class Vision:
+        def frames_content(self, frames):
+            return []
+
+        def structured(self, messages, model_cls, *, max_tokens, context=None):
+            t = answers.pop(0)
+            return TextCheck(has_text=t, text_seen="QQ" if t else None), "v"
+    d.vision = Vision()
+    assert pipeline.run_once(d)["state"] == "done_dry_run"
+    job = _job(d)
+    ops = [o for o in d.store.ops_for_job(job.id) if o["kind"] == "video_gen"]
+    assert [o["status"] for o in ops][:2] == ["failed", "succeeded"] and d.video.calls == 4  # no third paid try
+    assert d.store.get_stage(job.id, "generate")["warnings"][0].startswith("scene 0: possible lettering")
