@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import shutil
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -437,3 +438,23 @@ def test_lettering_on_last_attempt_stops_for_review_by_default(settings_env):
     job = _job(d)
     assert "lettering on the last attempt" in job.reason and "resolve-op" in job.reason
     assert d.artifacts.exists(f"jobs/{job.id}/review/scene_00.mp4")
+
+
+def test_script_lab_runs_team_without_jobs_or_media(settings_env, tmp_path):
+    from shorts_factory import lab
+
+    from .conftest import EXAMPLES
+
+    d = _deps(settings_env, TREND_MODE="kids", SELECT_REQUIRE_AI="false", TREND_REQUIRE_MADE_FOR_KIDS="true",
+              TREND_FIXTURE_FILE=str(EXAMPLES / "kids_trends_fixture.json"))
+    pipeline.discover(d)
+    refs = lab.pick_references(d, 2)
+    assert refs and len({c.channel_id for c in refs}) == len(refs)
+    out = lab.run_lab(d, refs, tmp_path / "lab" / "run1")
+    assert out["approved"] == len(refs) and d.video.calls == 0 and d.image is not None
+    assert d.store.list_jobs(limit=5) == []
+    now = datetime.now(UTC).timestamp()
+    assert {c["video_id"] for c in d.store.unused_candidates(now)} >= {c.video_id for c in refs}
+    md = (tmp_path / "lab" / "run1" / "report.md").read_text()
+    assert "Approved" in md and "| # | s | narration" in md and "Main subject:" in md
+    assert (tmp_path / "lab" / "analysis").is_dir()  # analysis cached for the next run

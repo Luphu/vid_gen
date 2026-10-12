@@ -15,6 +15,8 @@ CAND = Candidate(video_id="abcdefghijk", title="Котик красит забо
                  published_at=datetime.now(UTC), fetched_at=datetime.now(UTC))
 AN = Analysis(mode="metadata_only", video_id="abcdefghijk", topic="t", sources=["api"])
 
+RU = {"CONTENT_LANGUAGE": "ru", "NARRATION_WORDS_PER_S": "2.2"}  # the mock data is Russian
+
 
 class Fake:
     """Structured client: per output class a queue of answers (the last one repeats)."""
@@ -39,7 +41,7 @@ def _rv(score, *fix):
 
 
 def _s(**kw):
-    env = {"CONTENT_LANGUAGE": "ru", "TTS_PROVIDER": "mock", "FACT_CHECK": "false", "AGENT_MAX_ROUNDS": "3"}
+    env = {**RU, "TTS_PROVIDER": "mock", "FACT_CHECK": "false", "AGENT_MAX_ROUNDS": "3"}
     env.update(kw)
     return load_settings(env)
 

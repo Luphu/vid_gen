@@ -16,10 +16,10 @@ configMapGenerator:
       - SELECT_REQUIRE_AI=false
       - TREND_TOP_N=30
       # quoted: in YAML " #" starts a comment and silently cut the list to the first query
-      - "TREND_KEYWORDS=мультик для детей #shorts,мультфильм #shorts,песенка для детей #shorts,сказка для детей #shorts,cartoon for kids #shorts"
-      - TREND_LANGUAGES=ru,en
-      - TREND_REGION=RU
-      - TREND_LANGUAGE=ru
+      - "TREND_KEYWORDS=cartoon for kids #shorts,kids story #shorts,funny cartoon #shorts,kids animation #shorts,nursery rhymes #shorts"
+      - TREND_LANGUAGES=en
+      - TREND_REGION=US
+      - TREND_LANGUAGE=en
       - TREND_WINDOW_HOURS=168
       - TREND_MAX_RESULTS=200
       - TREND_MAX_PAGES=1
@@ -28,13 +28,13 @@ configMapGenerator:
       # Fast-paced edit
       - EDIT_MAX_SHOT_S=2.0
       - EDIT_FIRST_SHOT_S=1.2
-      - CONTENT_LANGUAGE=ru
+      - CONTENT_LANGUAGE=en
       # Replicate models (commercial use per model page, checked 2026-10-11)
       - REPLICATE_TEXT_MODEL=qwen/qwen3-235b-a22b-instruct-2507
       - REPLICATE_VIDEO_MODEL=wan-video/wan-2.2-t2v-fast
       - REPLICATE_VIDEO_RESOLUTION=720p
       - REPLICATE_TTS_MODEL=minimax/speech-02-turbo
-      - REPLICATE_TTS_VOICE=Russian_ReliableMan
+      - REPLICATE_TTS_VOICE=English_Deep-VoicedGentleman
       - TARGET_MIN_S=15
       - TARGET_MAX_S=30
       # Channel @whale_kiddo; content is general audience 13+, not made for kids (monetization)

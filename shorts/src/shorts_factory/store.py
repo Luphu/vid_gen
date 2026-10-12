@@ -262,6 +262,14 @@ class Store:
                             (job_id, stage)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def analysis_for_video(self, video_id: str) -> dict | None:
+        """Latest stored analysis of a reference (from any job), for script experiments."""
+        with self.tx() as c:
+            row = c.execute("SELECT s.payload FROM stage_results s JOIN jobs j ON j.id = s.job_id"
+                            " WHERE j.video_id = ? AND s.stage = 'analysis' ORDER BY s.created_at DESC",
+                            (video_id,)).fetchone()
+        return json.loads(row[0])["analysis"] if row else None
+
     def events(self, job_id: str) -> list[tuple]:
         with self.tx() as c:
             return c.execute("SELECT ts, from_state, to_state, note FROM events WHERE job_id = ? ORDER BY ts",

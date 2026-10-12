@@ -14,6 +14,8 @@ from shorts_factory.providers.mock import default_mock_responses
 
 SCRIPT = default_mock_responses()["Script"]
 
+RU = {"CONTENT_LANGUAGE": "ru", "NARRATION_WORDS_PER_S": "2.2"}  # the mock data is Russian
+
 
 def test_script_valid_and_limits():
     s = Script.model_validate(SCRIPT)
@@ -201,7 +203,7 @@ def test_fact_check_repairs_then_rejects():
     from shorts_factory.models import Candidate
     from shorts_factory.scripting import ScriptRejected, generate_script
 
-    s = load_settings({"CONTENT_LANGUAGE": "ru", "SCRIPT_PUNCH_UP": "false"})
+    s = load_settings({**RU, "SCRIPT_PUNCH_UP": "false"})
     cand = Candidate(video_id="abcdefghijk", title="Котик красит забор", channel_id="UCx",
                      published_at=datetime.now(UTC), fetched_at=datetime.now(UTC))
     an = Analysis(mode="metadata_only", video_id="abcdefghijk", topic="t", sources=["api"])
@@ -212,7 +214,7 @@ def test_fact_check_repairs_then_rejects():
     assert text.calls[1][-2]["role"] == "assistant"
     with pytest.raises(ScriptRejected, match="fact-check"):
         generate_script(s, _Seq(SCRIPT, SCRIPT), cand, an, "x", checker=_Seq(_fc("uncertain"), _fc("false")))
-    no_check = load_settings({"CONTENT_LANGUAGE": "ru", "FACT_CHECK": "false", "SCRIPT_PUNCH_UP": "false"})
+    no_check = load_settings({**RU, "FACT_CHECK": "false", "SCRIPT_PUNCH_UP": "false"})
     generate_script(no_check, _Seq(SCRIPT), cand, an, "x", checker=_Seq())
 
 
@@ -263,7 +265,7 @@ def test_punch_up_then_voice_over_density_is_enforced():
     from shorts_factory.models import Candidate
     from shorts_factory.scripting import ScriptRejected, generate_script, narration_range
 
-    s = load_settings({"CONTENT_LANGUAGE": "ru", "TTS_PROVIDER": "mock", "FACT_CHECK": "false"})
+    s = load_settings({**RU, "TTS_PROVIDER": "mock", "FACT_CHECK": "false"})
     assert narration_range(s, 6) == (10, 16)  # 2.2 words/s, pause <= 1.5 s
     cand = Candidate(video_id="abcdefghijk", title="Котик красит забор", channel_id="UCx",
                      published_at=datetime.now(UTC), fetched_at=datetime.now(UTC))
@@ -280,7 +282,7 @@ def test_punch_up_then_voice_over_density_is_enforced():
     generate_script(s, _Seq(near, {"critique": [], "script": near}, near), cand, an, "x")  # repaired once, kept
     with pytest.raises(ScriptRejected, match="scene 1 narration"):
         generate_script(s, _Seq(terse, {"critique": [], "script": terse}, terse), cand, an, "x")
-    silent = load_settings({"CONTENT_LANGUAGE": "ru", "FACT_CHECK": "false", "SCRIPT_PUNCH_UP": "false"})
+    silent = load_settings({**RU, "FACT_CHECK": "false", "SCRIPT_PUNCH_UP": "false"})
     generate_script(silent, _Seq(terse), cand, an, "x")  # no TTS -> no voice-over rule
 
 

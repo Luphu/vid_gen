@@ -229,6 +229,23 @@ def cmd_discover(s: Settings, args) -> int:
     return 0
 
 
+def cmd_script_lab(s: Settings, args) -> int:
+    from datetime import UTC, datetime
+
+    from . import lab
+
+    d = _deps(s)
+    if args.discover:
+        pipeline.discover(d)
+    refs = lab.pick_references(d, args.count, args.video_id, args.include_used)
+    if not refs:
+        print("no references: run with --discover or `shorts discover`")
+        return 2
+    out = Path(args.out) if args.out else Path(s.work_dir) / "script-lab" / f"{datetime.now(UTC):%Y%m%d-%H%M%S}"
+    _print(lab.run_lab(d, refs, out))
+    return 0
+
+
 def cmd_run(s: Settings, args) -> int:
     if args.dry_run:
         s = s.model_copy(update={"dry_run": True})
@@ -408,6 +425,13 @@ def main(argv: list[str] | None = None) -> int:
     sm.add_argument("--i-accept-cost", action="store_true")
     sm.add_argument("--resolution", default=None, help="default: provider resolution (e.g. 480p for cheapest)")
     sub.add_parser("discover")
+    lb = sub.add_parser("script-lab", help="tune script prompts: agent team on several references, report only "
+                                          "(no jobs, no video, image or speech)")
+    lb.add_argument("--count", type=int, default=3)
+    lb.add_argument("--video-id", action="append", help="reference video id (repeatable)")
+    lb.add_argument("--include-used", action="store_true", help="also references of earlier jobs")
+    lb.add_argument("--discover", action="store_true", help="search trends first (YouTube search quota)")
+    lb.add_argument("--out", help="report directory (default WORK_DIR/script-lab/<time>)")
     r = sub.add_parser("run")
     r.add_argument("--dry-run", action="store_true", help="force DRY_RUN for this run")
     r.add_argument("--job")
@@ -447,6 +471,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         s = load_settings()
         handlers = {"doctor": cmd_doctor, "smoke-test": cmd_smoke, "discover": cmd_discover, "run": cmd_run,
+                    "script-lab": cmd_script_lab,
                     "status": cmd_status, "review": cmd_review, "approve": cmd_approve, "reject": cmd_reject,
                     "retry": cmd_retry, "reconcile": cmd_reconcile, "resolve-op": cmd_resolve_op,
                     "auth": cmd_auth, "purge": cmd_purge, "migrate": cmd_migrate,
