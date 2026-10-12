@@ -5,13 +5,13 @@
   "hook": "Что если тетрадь оживёт?",
   "subject": "a palm-sized origami robot folded from plain white paper, square head, two thin arms, soft warm glow along its folds",
   "visual_style": "photorealistic macro footage, warm morning window light, shallow depth of field, muted natural colours",
-  "setting": "a sunny wooden desk with pencils, a mug and an open blank notebook",
+  "setting": "a sunny wooden desk with pencils, a mug and a folded paper crane",
   "trend_link": "сохранена ситуация «маленький герой исправляет поломку» с новым персонажем",
   "scenes": [
     {
       "index": 0,
       "duration_s": 6.0,
-      "generation_prompt": "The robot unfolds itself out of a blank notebook page on a wooden desk, its paper limbs creasing open one by one, slow dolly-in from a low angle",
+      "generation_prompt": "The robot unfolds itself out of a folded paper sheet on a wooden desk, its paper limbs creasing open one by one, slow dolly-in from a low angle",
       "subject_state": null,
       "negative_prompt": null,
       "narration": "Обычная тетрадь на столе. Почти обычная: у неё вдруг выросли руки.",

@@ -297,3 +297,12 @@ def test_verb_can_is_not_a_packaged_good():
     data = copy.deepcopy(SCRIPT)
     data["scenes"][0]["generation_prompt"] = "The subject can barely reach the shelf, stretching up, slow push-in"
     Script.model_validate(data)
+
+
+@pytest.mark.parametrize("bad", ["eyes fixed on the monitor", "types on the keyboard", "grabs a sticky note"])
+def test_text_prone_props_rejected_in_scene_prompts(bad):
+    data = copy.deepcopy(SCRIPT)
+    data["scenes"][0]["generation_prompt"] = "The subject leans forward, " + bad + ", slow push-in, warm light"
+    with pytest.raises(ValidationError, match="fake lettering"):
+        Script.model_validate(data)
+    Script.model_validate(data, context={"stored": True})

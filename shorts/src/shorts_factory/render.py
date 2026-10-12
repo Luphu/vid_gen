@@ -108,21 +108,36 @@ def normalize_scene(s: Settings, ff: FF, src: Path, scene: Scene, dst: Path, wor
     return shots
 
 
-def build_narration(ff: FF, parts: list[tuple[Path | None, float]], dst: Path) -> Path | None:
-    """Concatenate per-scene narration, each padded/trimmed to its scene duration."""
+J_CUT_MAX_S = 0.8  # how far a phrase may start before its scene's cut (audio leads the picture)
+
+
+def build_narration(ff: FF, parts: list[tuple[Path | None, float]], dst: Path,
+                    max_pause_s: float | None = None) -> Path | None:
+    """Place per-scene narration on one track. Each phrase starts at its scene's cut and is cut at the scene's
+    end; when the silence before a phrase would exceed ``max_pause_s``, the phrase starts up to J_CUT_MAX_S
+    earlier (J-cut), never overlapping the previous phrase."""
     if not any(p for p, _ in parts):
         return None
-    args: list[str] = []
-    filters = []
-    for i, (p, d) in enumerate(parts):
-        if p is None:
-            args += ["-f", "lavfi", "-t", f"{d:.3f}", "-i", "anullsrc=r=48000:cl=mono"]
-        else:
+    total = sum(d for _, d in parts)
+    args = ["-f", "lavfi", "-t", f"{total:.3f}", "-i", "anullsrc=r=48000:cl=mono"]
+    filters, labels = [], ["[0:a]"]
+    scene_start, prev_end = 0.0, 0.0
+    for p, d in parts:
+        if p is not None:
+            start = scene_start
+            gap = start - prev_end
+            if max_pause_s is not None and prev_end > 0 and gap > max_pause_s:
+                start -= min(gap - max_pause_s, J_CUT_MAX_S)
+            length = min(duration_of(ff.probe(p)), scene_start + d - start)
+            i = len(labels)
             args += ["-i", str(p)]
-        filters.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=mono,apad,atrim=0:{d:.3f},"
-                       f"asetpts=PTS-STARTPTS[a{i}]")
-    graph = ";".join(filters) + ";" + "".join(f"[a{i}]" for i in range(len(parts))) + \
-        f"concat=n={len(parts)}:v=0:a=1[out]"
+            filters.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=mono,atrim=0:{length:.3f},"
+                           f"asetpts=PTS-STARTPTS,adelay={int(start * 1000)}:all=1[a{i}]")
+            labels.append(f"[a{i}]")
+            prev_end = start + length
+        scene_start += d
+    graph = ";".join(filters) + (";" if filters else "") + "".join(labels) + \
+        f"amix=inputs={len(labels)}:duration=first:normalize=0,atrim=0:{total:.3f}[out]"
     ff.run([*args, "-filter_complex", graph, "-map", "[out]", "-c:a", "pcm_s16le", str(dst)])
     return dst
 
@@ -145,7 +160,7 @@ def render(s: Settings, ff: FF, script: Script, inp: RenderInputs, work: Path) -
 
     narration = build_narration(ff, [(p, sc.duration_s) for p, (sc, _) in zip(inp.narration, inp.scenes,
                                                                                 strict=True)],
-                                work / "narration.wav")
+                                work / "narration.wav", s.narration_max_pause_s)
     out = work / "final.mp4"
     args = ["-i", str(video_only)]
     audio_inputs = []

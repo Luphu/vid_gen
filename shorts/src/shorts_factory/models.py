@@ -179,7 +179,10 @@ _FORBIDDEN_IN_SCENE = re.compile(
 _CYRILLIC = re.compile(r"[\u0400-\u04FF]")
 _TEXT_PRONE = re.compile(
     r"(?i)\b(screens?|displays?|monitors?|holograms?|holographic|schematics?|signs?|signage|posters?|billboards?|"
-    r"labels?|books?|newspapers?|badges?|name ?tags?|patches|logos?|banners?|scoreboards?|neon signs?)\b")
+    r"labels?|books?|newspapers?|badges?|name ?tags?|patches|logos?|banners?|scoreboards?|neon signs?|"
+    r"keyboards?|sticky notes?|notebooks?|documents?|calendars?|clocks?|phones?|smartphones?|"
+    r"laptops?|tablets?|computers?|tv|televisions?|whiteboards?|chalkboards?|maps?|tickets?|receipts?|"
+    r"envelopes?|letters)\b")
 
 
 # Packaged goods come out with brand-like labels (a ketchup packet looked like a famous brand, 2026-10-12).
@@ -200,10 +203,14 @@ def check_generation_prompt(v: str, stored: bool = False) -> str:
     if m:
         raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: each scene is generated "
                          "independently, as one continuous shot, without any lettering")
-    m = None if stored else _PACKAGED.search(v)  # generation-time rule only
+    m = None if stored else _PACKAGED.search(v)  # generation-time rules only
     if m:
         raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: packaged goods get brand-like "
                          "labels; use unbranded food or objects without packaging")
+    m = None if stored else _TEXT_PRONE.search(v)
+    if m:
+        raise ValueError(f"generation_prompt must not contain {m.group(0)!r}: video models fill it with fake "
+                         "lettering; use props without screens, keys, paper or printed surfaces")
     return v
 
 
