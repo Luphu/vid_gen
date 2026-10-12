@@ -238,6 +238,10 @@ def test_lettering_needs_transcription():
     from shorts_factory.qc_vision import TextCheck
 
     assert not TextCheck(has_text=True, where="on the blue circle").confirmed
+    for meta in ["No text found", "I'm not able to identify the people in this image",
+                 "The boy is wearing a lab coat and goggles, and he is holding"]:
+        assert not TextCheck(has_text=True, text_seen=meta).confirmed, meta
+    assert TextCheck(has_text=True, text_seen="NO 17").confirmed
     assert not TextCheck(has_text=True, text_seen="~~", where="x").confirmed
     assert TextCheck(has_text=True, text_seen="NAATS", where="vest").confirmed
     assert TextCheck(has_text=True, text_seen="Ок 1", where="x").confirmed

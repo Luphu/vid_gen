@@ -23,6 +23,10 @@ LETTERING_PROMPT = (
     "text. If you report text, copy the exact characters you can read into text_seen. Answer ONLY with JSON: "
     '{"has_text": true|false, "text_seen": string|null, "where": string|null}')
 _CHARS = re.compile(r"[0-9A-Za-z\u0400-\u04FF]")
+# The 11B VLM often puts a sentence about the image (or a refusal) into text_seen instead of a transcription:
+# "No text found", "I'm not able to identify the people…", "The boy is wearing a lab coat…" (seen 2026-10-12).
+_META = re.compile(r"\b(no text|not able|unable|sorry|i'm|i am|cannot|can't|image|visible|identify)\b", re.I)
+_MAX_WORDS = 6  # generated pseudo-lettering is short; a longer "transcription" is a description
 
 
 class TextCheck(BaseModel):
@@ -34,7 +38,9 @@ class TextCheck(BaseModel):
     @property
     def confirmed(self) -> bool:
         """Only a transcription with real characters counts (the 11B VLM flags light patterns otherwise)."""
-        return self.has_text and len(_CHARS.findall(self.text_seen or "")) >= 2
+        seen = (self.text_seen or "").strip()
+        return (self.has_text and len(_CHARS.findall(seen)) >= 2 and not _META.search(seen)
+                and len(seen.split()) <= _MAX_WORDS)
 
 
 def has_lettering(vision, image: Path) -> tuple[bool, str]:
