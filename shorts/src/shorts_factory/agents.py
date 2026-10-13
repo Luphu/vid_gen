@@ -368,6 +368,13 @@ def _verdict(s: Settings, rv: Review) -> tuple[int, list[str]]:
     return score, fixes or [f"critic scored {rv.score}/10; raise the quality"]
 
 
+def _fingerprint(pkg: dict) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(json.dumps(pkg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 class _Team:
     def __init__(self, s: Settings, agent, critic, candidate: Candidate, analysis: Analysis, fmt: str):
         self.s, self.agent, self.critic, self.candidate, self.analysis = s, agent, critic, candidate, analysis
@@ -379,6 +386,7 @@ class _Team:
         self.out: dict[str, BaseModel] = {}
         self.previous: dict[str, Review] = {}
         self.report: dict = {"phases": {r: [] for r in ROLES}, "final": [], "escalations": []}
+        self.approved_at: dict[str, str] = {}  # role -> fingerprint of the final package its critic approved
 
     def assemble(self, provisional: bool = False) -> Script:
         edit = self.out.get("editor")
@@ -420,6 +428,12 @@ class _Team:
             entry["must_fix"], entry["suggestions"] = notes, rv.suggestions[:5]
             log.info("team %s round %d: score %d, must fix %d", role, entry["round"], entry["score"], len(notes))
             if not notes:
+                self.approved_at.pop(role, None)
+                if "director" in self.out:  # the writer is approved on the story alone
+                    try:
+                        self.approved_at[role] = _fingerprint(package(self.assemble(), self.analysis_view))
+                    except TeamError:
+                        pass
                 return True
         return False
 
@@ -475,7 +489,11 @@ def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: 
                                      + (f"; confusing: {'; '.join(v['confusing'][:4])}" if v["confusing"] else "")
                                      + ". Make the story easy to follow from the picture, voice-over and text alone."]
         pkg = package(script, team.analysis_view)
+        fp = _fingerprint(pkg)
         for role in ([] if failing else ROLES):
+            if team.approved_at.get(role) == fp:  # its critic approved exactly this package: asking again is noise
+                entry["scores"][role], entry["must_fix"][role] = team.report["phases"][role][-1]["score"], []
+                continue
             rv = _critique(s, critic, role, pkg, team.vals, team.previous.get(role))
             team.previous[role] = rv
             entry["scores"][role], fixes = _verdict(s, rv)
