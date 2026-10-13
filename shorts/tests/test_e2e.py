@@ -458,3 +458,31 @@ def test_script_lab_runs_team_without_jobs_or_media(settings_env, tmp_path):
     md = (tmp_path / "lab" / "run1" / "report.md").read_text()
     assert "Approved" in md and "| # | s | narration" in md and "Main subject:" in md
     assert (tmp_path / "lab" / "analysis").is_dir()  # analysis cached for the next run
+
+
+def test_missing_key_prop_in_clip_triggers_one_regeneration(settings_env):
+    from shorts_factory.qc_vision import PropCheck, TextCheck
+
+    d = _deps(settings_env)
+    plan = d.agent.responses["ShotPlan"]
+    plan["setting"] += ", a tiny white origami crane on the desk"
+    plan["key_props"] = ["a tiny white origami crane"]
+    plan["scenes"][0]["must_show"] = ["a tiny white origami crane"]
+    seen = iter([True, False, False, True])  # keyframe ok; clip 0: start+mid miss it; retry: visible
+
+    class Vision:
+        def frames_content(self, frames):
+            return []
+
+        def structured(self, messages, model_cls, *, max_tokens, context=None):
+            if model_cls is TextCheck:
+                return TextCheck(has_text=False), "v"
+            assert model_cls is PropCheck
+            return PropCheck(items=[{"name": "a tiny white origami crane", "visible": next(seen)}]), "v"
+    d.vision = Vision()
+    assert pipeline.run_once(d)["state"] == "done_dry_run"
+    job = _job(d)
+    ops = [o for o in d.store.ops_for_job(job.id) if o["kind"] == "video_gen"]
+    assert ops[0]["status"] == "failed" and "missing" in ops[0]["detail"] and d.video.calls == 4
+    script = d.store.get_stage(job.id, "script")["script"]
+    assert script["key_props"] == ["a tiny white origami crane"]

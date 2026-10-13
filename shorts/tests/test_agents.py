@@ -187,3 +187,18 @@ def test_viewer_who_cannot_follow_sends_the_story_back_to_the_writer():
     assert "viewer test" in agent.calls[3][1][-1]["content"] and "crate" in agent.calls[3][1][-1]["content"]
     blind = viewer.calls[0][1][0]["content"]
     assert "concept" not in blind and "voice_over" in blind  # the viewer never sees the writer's intent
+
+
+def test_director_must_put_key_props_into_the_setting_and_shots():
+    from shorts_factory.agents import ShotPlan, director_checks
+
+    plan = copy.deepcopy(MOCK["ShotPlan"])
+    plan["key_props"] = ["a tiny brass bell"]
+    assert any("not described in the setting" in c for c in director_checks(ShotPlan.model_validate(plan)))
+    plan["setting"] += ", a tiny brass bell on the desk"
+    assert any("not in must_show of any shot" in c for c in director_checks(ShotPlan.model_validate(plan)))
+    plan["scenes"][0]["must_show"] = ["a tiny brass bell"]
+    assert director_checks(ShotPlan.model_validate(plan)) == []
+    bad = copy.deepcopy(plan)
+    bad["scenes"][1]["must_show"] = ["a dragon"]
+    assert any("not one of key_props" in c for c in director_checks(ShotPlan.model_validate(bad)))

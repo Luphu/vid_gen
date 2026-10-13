@@ -175,7 +175,8 @@ def generate_script(s: Settings, text_client, candidate: Candidate, analysis: An
 
 def compose_keyframe_prompt(script: Script) -> str:
     """Opening image for i2v_chain: the subject in the story's single setting."""
-    return (f"{script.subject.strip().rstrip('.')}, {script.setting.strip().rstrip('.')}. "
+    props = f"Clearly visible in the scene: {', '.join(script.key_props)}. " if script.key_props else ""
+    return (f"{script.subject.strip().rstrip('.')}, {script.setting.strip().rstrip('.')}. {props}"
             f"{script.visual_style.strip().rstrip('.')}. Vertical 9:16 composition, the subject large and centered, "
             "plain clothing without patches, badges or prints, no screens or displays, "
             "clean image with no lettering, no signs, no captions, no logos and no watermark.")
@@ -190,6 +191,8 @@ def compose_video_prompt(script: Script, scene) -> str:
     parts = [scene.generation_prompt.strip().rstrip("."),
              f"Main subject: {script.subject.strip().rstrip('.')}"
              + (f", {scene.subject_state.strip().rstrip('.')}" if scene.subject_state else ""),
+             *([f"Clearly visible in the shot: {', '.join(scene.must_show)}"] if getattr(scene, "must_show", None)
+               else []),
              f"Style: {script.visual_style.strip().rstrip('.')}",
              f"Single continuous shot, vertical 9:16 composition, main subject {region}",
              "Clean image with no lettering, no captions, no logos and no watermark"]

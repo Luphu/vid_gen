@@ -236,6 +236,8 @@ class Scene(Strict):
     narration: str = Field(default="", max_length=400)
     on_screen_text: str = Field(default="", max_length=80)
     important_region: Literal["center", "top", "bottom"] = "center"
+    # key props (from Script.key_props) that must be visible in this shot; checked on the generated frames
+    must_show: list[str] = Field(default_factory=list, max_length=4)
 
     @field_validator("generation_prompt")
     @classmethod
@@ -268,6 +270,8 @@ class Script(Strict):
     # Which core situation/emotion of the reference trend this video keeps (with new characters and story).
     trend_link: str = Field(min_length=10, max_length=400)
     scenes: list[Scene] = Field(min_length=1, max_length=10)
+    # objects the story depends on (English); drawn into the opening image and checked on generated frames
+    key_props: list[str] = Field(default_factory=list, max_length=4)
     narration: str = Field(default="", max_length=2000)
     title: str = Field(min_length=3, max_length=100)
     description: str = Field(min_length=10, max_length=4500)
@@ -278,6 +282,12 @@ class Script(Strict):
     @classmethod
     def _visual_fields_en(cls, v: str, info) -> str:
         return check_visual_field(info.field_name, v, stored=bool(info.context and info.context.get("stored")))
+
+    @field_validator("key_props")
+    @classmethod
+    def _props_safe(cls, v: list[str], info) -> list[str]:
+        stored = bool(info.context and info.context.get("stored"))
+        return [check_visual_field("setting", p.strip(), stored)[:80] for p in v if p.strip()]
 
     @field_validator("title")
     @classmethod

@@ -35,7 +35,7 @@ from .providers.nim_chat import StructuredOutputError
 from .providers.nim_video import VideoRequest
 from .providers.tts import TTS
 from .qc import check_final, check_scene
-from .qc_vision import frame_at, has_lettering
+from .qc_vision import frame_at, has_lettering, missing_props
 from .render import RenderInputs, expected_audio, render
 from .scripting import (
     ScriptRejected,
@@ -336,6 +336,12 @@ def _keyframe(d: Deps, job: Job, script: Script, work: Path) -> Path:
                 d.store.update_op(op_key, "failed", request_id=rid, detail=f"lettering in keyframe: {where}")
                 log.warning("keyframe attempt %d has lettering (%s); retrying", attempt, where)
                 continue
+        if d.s.check_props and d.vision is not None and script.key_props:
+            gone = missing_props(d.vision, [local], script.key_props)
+            if gone:
+                d.store.update_op(op_key, "failed", request_id=rid, detail=f"keyframe misses key props: {gone}"[:500])
+                log.warning("keyframe attempt %d misses key props %s; retrying", attempt, gone)
+                continue
         d.artifacts.put_file(key, local, "image/jpeg")
         d.store.update_op(op_key, "succeeded", request_id=rid, artifact_key=key, detail=prompt[:500])
         return local
@@ -456,6 +462,26 @@ def _stage_generate(d: Deps, job: Job) -> Job:
             if text:  # last attempt: keep it, flag it for the human reviewer instead of paying again
                 warnings.append(f"scene {sc.index}: possible lettering {where}")
                 log.warning("scene %d: lettering suspected on last attempt; accepted with warning", sc.index)
+        if d.s.check_props and d.vision is not None and sc.must_show:
+            dur = qc.duration_s or sc.duration_s
+            frames = [frame_at(d.ff, local, work / f"props_{sc.index:02d}_a.jpg", at_s=0.3),
+                      frame_at(d.ff, local, work / f"props_{sc.index:02d}_m.jpg", at_s=dur / 2)]
+            gone = missing_props(d.vision, frames, sc.must_show)
+            if gone:
+                attempts_left = MAX_ATTEMPTS_PER_SCENE - (len(ops) + 1 - superseded)
+                if attempts_left > 0:
+                    d.store.update_op(op_key, "failed", request_id=rid, detail=f"bad result: missing {gone}"[:500])
+                    log.warning("scene %d misses key props %s; next attempt", sc.index, gone)
+                    return _stage_generate(d, d.store.get_job(job.id) or job)
+                rkey = f"jobs/{job.id}/review/scene_{sc.index:02d}.mp4"
+                d.artifacts.put_file(rkey, local, "video/mp4")
+                d.store.update_op(op_key, "failed", request_id=rid, artifact_key=rkey,
+                                  detail=f"bad result: missing on last attempt {gone}"[:500])
+                return _review(d, job, f"scene {sc.index}: key props {gone} not visible on the last attempt; check "
+                                       f"{rkey}. Accept: `shorts resolve-op {op_key} --note ok --artifact <file>` "
+                                       f"then `shorts retry {job.id} --stage generate`; or regenerate (billable): "
+                                       f"`shorts retry {job.id} --stage generate --regenerate-scenes {sc.index}`",
+                               None)
         d.artifacts.put_file(key, local, "video/mp4")
         d.store.update_op(op_key, "succeeded", request_id=rid, artifact_key=key)
         results.append({"index": sc.index, "key": key, "request_id": rid, "prompt": req.prompt,
@@ -734,8 +760,8 @@ def resolve_op(store: Store, artifacts: ArtifactStore, op_key: str, note: str,
     is the operator's decision). With ``artifact``: store the recovered file and mark succeeded.
     """
     op = store.get_op(op_key)
-    lettering_reject = (op is not None and op["status"] == "failed"
-                        and (op["detail"] or "").startswith("bad result: lettering"))
+    lettering_reject = (op is not None and op["status"] == "failed"  # or a clip missing a key prop
+                        and (op["detail"] or "").startswith(("bad result: lettering", "bad result: missing")))
     if op is None or (op["status"] not in ("unknown", "pending", "submitted") and not lettering_reject):
         raise ValueError("operation not found or not unresolved")
     if lettering_reject and artifact is None:
