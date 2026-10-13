@@ -746,9 +746,15 @@ def retry(store: Store, job_id: str, stage: str, regenerate_scenes: list[int] | 
         raise ValueError("validation did not pass; retry render/validate first")
     job = store.transition(job, target, reason=f"operator retry from {stage}")
     for idx in regenerate_scenes or []:
-        ops = [o for o in store.ops_for_job(job_id) if o["op_key"].startswith(f"{job_id}:gen:{idx}:")]
-        if ops and ops[-1]["status"] == "succeeded":
-            store.update_op(ops[-1]["op_key"], "failed", detail="superseded by operator (regenerate)")
+        # the operator pays for fresh attempts: a kept clip and clips rejected by quality checks (lettering,
+        # missing props, QC) no longer count against MAX_ATTEMPTS_PER_SCENE
+        for o in store.ops_for_job(job_id):
+            if not o["op_key"].startswith(f"{job_id}:gen:{idx}:") or (o["detail"] or "").startswith("superseded"):
+                continue
+            rejected = o["status"] == "failed" and (o["detail"] or "").startswith("bad result")
+            if o["status"] == "succeeded" or rejected:
+                store.update_op(o["op_key"], "failed",
+                                detail=f"superseded by operator (regenerate): {o['detail'] or ''}"[:500])
     return job
 
 
