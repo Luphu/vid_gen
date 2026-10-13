@@ -585,6 +585,17 @@ def stage_validate(d: Deps, job: Job) -> Job:
     return d.store.transition(job, JobState.VALIDATED, stage="validate", payload=payload)
 
 
+_AI_NOTE = re.compile(
+    r"(?i)(?:^|(?<=[.!?\n]))\s*[^.!?\n]*(?:\b(?:AI|A\.I\.|artificial intelligence)\b[^.!?\n]*"
+    r"\b(?:generat\w*|made|created|render\w*)\b|\b(?:generat\w*|made|created)\b[^.!?\n]*"
+    r"\b(?:AI|A\.I\.|artificial intelligence)\b|сгенерирован\w*[^.!?\n]*|нейросет\w*[^.!?\n]*)[^.!?\n]*[.!?]?")
+
+
+def strip_ai_note(text: str) -> str:
+    """Remove sentences that say the video was made with AI (the API flag carries the label)."""
+    return re.sub(r"[ \t]+\n", "\n", re.sub(r"\n{3,}", "\n\n", _AI_NOTE.sub("", text))).strip()
+
+
 def build_upload_request(s: Settings, store: Store, script: Script, now: datetime | None = None) -> tuple[
         UploadRequest, list[str]]:
     notes: list[str] = []
@@ -610,8 +621,10 @@ def build_upload_request(s: Settings, store: Store, script: Script, now: datetim
                 raise ConfigError("PUBLISH_TIME_UTC is only supported with PUBLISH_PRIVACY=public")
     else:
         notes.append("AUTO_PUBLISH=false: uploaded as private")
-    desc = script.description
-    if script.disclosure.disclosure_text not in desc:
+    # The synthetic-media label is the API flag below (Studio "altered or synthetic content"); the owner does not
+    # want an AI sentence in the description text (2026-10-13), so none is added and a model-written one is removed
+    desc = strip_ai_note(script.description) if not s.description_ai_note else script.description
+    if s.description_ai_note and script.disclosure.disclosure_text not in desc:
         desc = f"{desc}\n\n{script.disclosure.disclosure_text}"
     req = UploadRequest(title=script.title, description=desc[:4900], tags=script.tags,
                         category_id=s.youtube_category_id, privacy_status=privacy, publish_at=publish_at,

@@ -217,7 +217,7 @@ def test_real_upload_path_with_fake_youtube_private_first(settings_env):
     meta = next(iter(fake.sessions.values()))["meta"]
     assert meta["status"]["privacyStatus"] == "private"  # first real upload forced private despite consent
     assert meta["status"]["selfDeclaredMadeForKids"] is False and meta["status"]["containsSyntheticMedia"] is True
-    assert "сгенерирован" in meta["snippet"]["description"]
+    assert "сгенерирован" not in meta["snippet"]["description"]  # owner: no AI sentence; the flag above labels it
     job = _job(d)
     with pytest.raises(ValueError, match="duplicate"):
         pipeline.retry(d.store, job.id, "render")

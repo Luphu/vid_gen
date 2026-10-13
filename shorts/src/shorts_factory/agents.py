@@ -46,8 +46,8 @@ log = logging.getLogger(__name__)
 
 ROLES = ("writer", "director", "editor")
 # prompt versions per role (prompts/agent_<role>_v<N>.md, prompts/critic_<role>_v<N>.md)
-AGENT_VERSIONS = {"writer": 3, "director": 4, "editor": 3}
-CRITIC_VERSIONS = {"writer": 4, "director": 5, "editor": 4}
+AGENT_VERSIONS = {"writer": 3, "director": 4, "editor": 4}
+CRITIC_VERSIONS = {"writer": 4, "director": 5, "editor": 5}
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
 
@@ -119,7 +119,7 @@ class Edit(_Loose):
     title: str = Field(min_length=3, max_length=100)
     description: str = Field(min_length=10, max_length=4500)
     tags: list[str] = Field(default_factory=list, max_length=20)
-    disclosure_text: str = Field(min_length=5, max_length=200)
+    disclosure_text: str = ""  # editor v4 no longer writes it; the script keeps an internal record
     voice: str = ""
 
 
@@ -214,7 +214,8 @@ def assemble(s: Settings, story: Story, plan: ShotPlan, edit: Edit) -> Script:
                       voice=edit.voice or None,
                       narration=" ".join(e.narration for e in edit.scenes),
                       title=edit.title, description=edit.description, tags=edit.tags,
-                      disclosure=Disclosure(made_for_kids=False, disclosure_text=edit.disclosure_text))
+                      disclosure=Disclosure(made_for_kids=False, disclosure_text=edit.disclosure_text
+                                            or "AI-generated visuals; labelled via the YouTube synthetic-media flag"))
     except ValidationError as e:
         visual = any(str(p) in ("subject", "setting", "visual_style", "generation_prompt", "subject_state")
                      for err in e.errors() for p in err["loc"])

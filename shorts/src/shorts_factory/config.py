@@ -274,6 +274,9 @@ class Settings(BaseModel):
     # Publication consent (used only with AUTO_PUBLISH=true)
     publish_consent_channel_id: str = ""
     publish_privacy: Literal["private", "unlisted", "public"] = "private"
+    # add the script's AI-disclosure sentence to the YouTube description (the synthetic-media API flag is always
+    # set regardless); off by the owner's decision 2026-10-13
+    description_ai_note: bool = False
     publish_made_for_kids: bool | None = None
     publish_time_utc: str = ""  # "HH:MM" -> publishAt next slot; empty = immediate with chosen privacy
     publish_daily_limit: int = 1
