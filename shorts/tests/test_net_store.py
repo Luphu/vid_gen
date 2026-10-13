@@ -130,3 +130,14 @@ def test_purge_respects_retention(store):
     res = store.purge_expired(now)
     assert res["candidates_deleted"] == 1 and res["candidates_scrubbed"] == 1
     assert store.get_candidate("usedvid0001") == {} and store.get_candidate("newvid00001")
+
+
+def test_429_without_retry_after_waits_long_enough_for_a_minute_quota():
+    import httpx
+
+    from shorts_factory.net import RetryPolicy, send_with_retry
+
+    waits = []
+    replies = iter([httpx.Response(429), httpx.Response(429), httpx.Response(200)])
+    resp = send_with_retry(lambda: next(replies), RetryPolicy(max_retries=4), what="t", sleep=waits.append)
+    assert resp.status_code == 200 and waits[0] >= 5 and waits[1] >= 10

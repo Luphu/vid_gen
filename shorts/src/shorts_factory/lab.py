@@ -18,6 +18,7 @@ from .agents import TeamRejected, write_with_team
 from .analysis import analyze_public_signals
 from .config import ConfigError
 from .models import Analysis, Candidate
+from .net import ProviderError
 from .pipeline import Deps, select_candidate
 from .providers.nim_chat import StructuredOutputError
 from .scripting import compose_keyframe_prompt, compose_video_prompt, pick_format
@@ -27,7 +28,7 @@ _CRITERION = re.compile(r"^(\w+) scored (\d+)/10")
 
 
 def pick_references(d: Deps, count: int, video_ids: list[str] | None = None,
-                    include_used: bool = False) -> list[Candidate]:
+                    include_used: bool = False, skip: set[str] | None = None) -> list[Candidate]:
     if video_ids:
         found = [d.store.get_candidate(v) for v in video_ids]
         missing = [v for v, c in zip(video_ids, found, strict=True) if c is None]
@@ -40,6 +41,7 @@ def pick_references(d: Deps, count: int, video_ids: list[str] | None = None,
         with d.store.tx() as c:
             rows = c.execute("SELECT data FROM candidates WHERE used_by_job IS NOT NULL").fetchall()
         pool += [Candidate.model_validate(json.loads(r[0])) for r in rows]
+    pool = [c for c in pool if c.video_id not in (skip or set())]
     picked: list[Candidate] = []
     while len(picked) < count:
         avoid = {c.channel_id for c in picked}  # one reference per channel: more variety
@@ -86,7 +88,7 @@ def run_lab(d: Deps, refs: list[Candidate], out: Path) -> dict:
                     "video_prompts": [compose_video_prompt(script, sc) for sc in script.scenes]}
         except TeamRejected as e:
             res |= {"approved": False, "reason": str(e)[:500], "team": e.report}
-        except (StructuredOutputError, ConfigError) as e:
+        except (StructuredOutputError, ConfigError, ProviderError) as e:  # one reference must not stop the lab
             res |= {"approved": False, "reason": f"{type(e).__name__}: {e}"[:500]}
         res["minutes"] = round((time.monotonic() - t0) / 60, 1)
         (out / f"{cand.video_id}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str))

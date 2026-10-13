@@ -16,7 +16,7 @@ configMapGenerator:
       - SELECT_REQUIRE_AI=false
       - TREND_TOP_N=30
       # quoted: in YAML " #" starts a comment and silently cut the list to the first query
-      - "TREND_KEYWORDS=cartoon for kids #shorts,kids story #shorts,funny cartoon #shorts,kids animation #shorts,nursery rhymes #shorts"
+      - "TREND_KEYWORDS=cartoon for kids #shorts,kids story #shorts,funny cartoon #shorts,kids animation #shorts,cartoon story #shorts"
       - TREND_LANGUAGES=en
       - TREND_REGION=US
       - TREND_LANGUAGE=en
@@ -34,7 +34,7 @@ configMapGenerator:
       - REPLICATE_VIDEO_MODEL=wan-video/wan-2.2-t2v-fast
       - REPLICATE_VIDEO_RESOLUTION=720p
       - REPLICATE_TTS_MODEL=minimax/speech-02-turbo
-      - REPLICATE_TTS_VOICE=English_Deep-VoicedGentleman
+      - REPLICATE_TTS_VOICE=English_PlayfulGirl
       - TARGET_MIN_S=15
       - TARGET_MAX_S=30
       # Channel @whale_kiddo; content is general audience 13+, not made for kids (monetization)

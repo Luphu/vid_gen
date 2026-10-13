@@ -110,7 +110,10 @@ def send_with_retry(
                 return resp
             if attempt >= policy.max_retries:
                 raise ProviderError(f"{what}: HTTP {s} after {attempt} retries", status=s, retryable=True)
-            d = policy.delay(attempt, parse_retry_after(resp.headers.get("Retry-After")))
+            retry_after = parse_retry_after(resp.headers.get("Retry-After"))
+            d = policy.delay(attempt, retry_after)
+            if s == 429 and retry_after is None:  # per-minute quotas (NVIDIA trial): jitter alone is too short
+                d = max(d, min(policy.max_delay_s, 5.0 * 2 ** attempt))
             log.warning("%s: HTTP %s, retry %d in %.1fs", what, s, attempt + 1, d)
         attempt += 1
         sleep(d)

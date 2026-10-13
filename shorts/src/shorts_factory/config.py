@@ -120,7 +120,7 @@ class Settings(BaseModel):
     lettering_last_attempt: Literal["review", "accept"] = "review"
     fact_check: bool = True
     replicate_tts_model: str = "minimax/speech-02-turbo"
-    replicate_tts_voice: str = "English_Deep-VoicedGentleman"  # voice id from the model schema
+    replicate_tts_voice: str = "English_PlayfulGirl"  # voice id from the model schema
     replicate_poll_interval_s: float = 3.0
 
     budget: Budget = Field(default_factory=Budget)
@@ -139,6 +139,16 @@ class Settings(BaseModel):
     youtube_api_key: SecretStr | None = None
     trend_keywords: list[str] = Field(default_factory=lambda: ["ai generated", "ai video"])
     trend_channel_allowlist: list[str] = Field(default_factory=list)
+    # kids mode: skip references that are songs or lessons (no plot to retell); matched as whole words in the
+    # title and tags, plus the YouTube "Music" topic
+    trend_skip_words: list[str] = Field(default_factory=lambda: [
+        "song", "songs", "nursery rhyme", "nursery rhymes", "rhyme", "rhymes", "lyrics", "karaoke", "sing along",
+        "sing-along", "singalong", "music video", "lullaby", "lullabies", "abc", "abcs", "alphabet", "phonics",
+        "learn colors", "learn colours", "learn numbers", "learn to count", "counting", "times tables", "math",
+        "dance", "learn", "learning", "craft", "crafts", "diy", "tutorial", "how to make",
+        # titles that name another language (Latin-script Hindi/Urdu passes the alphabet check)
+        "hindi", "urdu", "bangla", "bengali", "tamil", "telugu", "marathi", "spanish", "arabic",
+        "песенка", "песня"])
     trend_region: str = "US"
     trend_language: str = "en"
     trend_window_hours: int = 72
@@ -211,7 +221,7 @@ class Settings(BaseModel):
     critic_min_score: int = 8
     critic_min_criterion: int = 7  # and every criterion of every critic at least this
     agent_max_rounds: int = 3    # author <-> critic rounds per role
-    agent_final_rounds: int = 2  # final gate: all critics on the final package
+    agent_final_rounds: int = 3  # final gate: all critics on the final package
     agent_max_tokens: int = 4096
     agent_temperature: float = 0.7
     # Story formats: a trend is a situation + emotion, so the new video retells one (fact lists lost the trend)
