@@ -46,8 +46,8 @@ log = logging.getLogger(__name__)
 
 ROLES = ("writer", "director", "editor")
 # prompt versions per role (prompts/agent_<role>_v<N>.md, prompts/critic_<role>_v<N>.md)
-AGENT_VERSIONS = {"writer": 2, "director": 4, "editor": 3}
-CRITIC_VERSIONS = {"writer": 3, "director": 5, "editor": 4}
+AGENT_VERSIONS = {"writer": 3, "director": 4, "editor": 3}
+CRITIC_VERSIONS = {"writer": 4, "director": 5, "editor": 4}
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
 
@@ -233,12 +233,48 @@ def package(script: Script, analysis_view: dict) -> dict:
     }
 
 
+MODE_RULES = {
+    "story": {
+        "reference_rules": (
+            "Reference: a popular short from the CHILDREN's segment (analysis below). Keep the CORE SITUATION and "
+            "EMOTION of\nits plot and retell it with a new hero, new details and a new resolution for a general "
+            "audience 13+ (not for\nkids: no nursery rhymes, toddler toys, baby talk, counting/colour lessons). "
+            "Story format: $format."),
+        "truth_rules": (
+            "Truthfulness: it is a STORY. No real-world claims except common knowledge; no numbers, records, "
+            "studies.\nThe characters' own impossible events are fine without any \"imagine\" framing; never state "
+            "a false\ngeneral fact about the real world."),
+        "extra_criteria": "",
+    },
+    "edu": {
+        "reference_rules": (
+            "Reference: a popular EDUCATIONAL short for children (analysis below). Take its TOPIC (animals, space, "
+            "the body,\nscience, how things work…) and make a video for a general audience 13+ that teaches ONE "
+            "surprising, TRUE fact\nfrom that topic, shown through a mini story with your hero: the hero runs into "
+            "the fact, the viewer learns it,\nthe ending lands it with a joke or twist. The fact is stated clearly "
+            "in plain words in the narration (by the last\nscene at the latest). Not a lesson for toddlers: no "
+            "counting, colours or ABC. Format: $format."),
+        "truth_rules": (
+            "Truthfulness (critical): the taught fact and every real-world statement must be well-established, "
+            "found in any\nencyclopedia (e.g. \"an octopus has three hearts\", \"honey never spoils\"). No "
+            "precise numbers unless textbook-famous,\nno records, no studies, no health advice, no \"scientists "
+            "say\". If unsure, choose a different fact. An independent\nfact-checker rejects false or doubtful "
+            "claims. The hero's own story may be fiction."),
+        "extra_criteria": (
+            "- fact: the video teaches one clear, surprising, well-established fact from the reference's topic; it "
+            "is stated\n  plainly and the story makes it memorable (a missing, vague or doubtful fact is a blocking "
+            "defect);\n"),
+    },
+}
+
+
 def _values(s: Settings, analysis_view: dict, fmt: str) -> dict:
     max_scene = min(s.max_scene_seconds, 20.0)
     min_scenes = max(1, int(-(-s.target_min_s // max_scene)))
     hint = "Видеоряд сгенерирован ИИ." if s.content_language.lower().startswith("ru") else \
         "Visuals are AI-generated."
-    return {"language": s.content_language, "audience": s.target_audience, "format": fmt,
+    rules = {k: v.replace("$format", fmt) for k, v in MODE_RULES[s.content_mode].items()}
+    return {**rules, "language": s.content_language, "audience": s.target_audience, "format": fmt,
             "min_s": s.target_min_s, "max_s": s.target_max_s, "min_scenes": min_scenes,
             "max_scenes": min(10, min_scenes + 3), "max_scene_s": round(max_scene, 2), "disclosure_hint": hint,
             "analysis_json": prompts.untrusted(analysis_view), **wps_values(s),

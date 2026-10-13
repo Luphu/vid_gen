@@ -127,7 +127,9 @@ def select_candidate(s: Settings, cands: list[Candidate], avoid_channels: set[st
 
     pool = [c for c in cands if c.format_status != FormatStatus.NOT_SHORT
             and c.channel_id not in (avoid_channels or set()) and language_ok(c, s.trend_languages)]
-    pool = [c for c in pool if not is_song_or_lesson(c, s.trend_skip_words)] if s.trend_mode == "kids" else pool
+    if s.trend_mode == "kids":
+        skip = s.edu_skip_words if s.content_mode == "edu" else s.trend_skip_words
+        pool = [c for c in pool if not is_song_or_lesson(c, skip)]
     if s.select_require_ai:
         pool = [c for c in pool if c.ai.ai_likelihood is not None and c.ai.ai_likelihood >= s.ai_review_low]
         pool.sort(key=lambda c: (c.ai.ai_likelihood < s.ai_min_likelihood,  # confident AI first
