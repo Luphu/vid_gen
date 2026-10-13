@@ -486,3 +486,22 @@ def test_missing_key_prop_in_clip_triggers_one_regeneration(settings_env):
     assert ops[0]["status"] == "failed" and "missing" in ops[0]["detail"] and d.video.calls == 4
     script = d.store.get_stage(job.id, "script")["script"]
     assert script["key_props"] == ["a tiny white origami crane"]
+
+
+def test_regenerating_a_scene_whose_attempts_were_all_rejected(settings_env):
+    from shorts_factory.qc_vision import TextCheck
+
+    d = _deps(settings_env)
+    answers = iter([False, True, True])  # keyframe ok; scene 0 lettering on both attempts -> review
+
+    class Vision:
+        def frames_content(self, frames):
+            return []
+
+        def structured(self, messages, model_cls, *, max_tokens, context=None):
+            t = next(answers, False)
+            return TextCheck(has_text=t, text_seen="QQ" if t else None), "v"
+    d.vision = Vision()
+    assert pipeline.run_once(d)["state"] == "review_required"
+    job = pipeline.advance(d, pipeline.retry(d.store, _job(d).id, "generate", regenerate_scenes=[0]))
+    assert job.state == JobState.DONE_DRY_RUN and d.video.calls == 2 + 3  # a fresh attempt, then scenes 1-2
