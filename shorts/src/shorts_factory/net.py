@@ -109,12 +109,12 @@ def send_with_retry(
             if not retryable:
                 return resp
             # per-minute quotas (NVIDIA trial) need more patience than server errors: up to ~3 minutes
-            limit = policy.max_retries + (2 if s == 429 else 0)
+            limit = policy.max_retries + (2 if s in (429, 503) else 0)
             if attempt >= limit:
                 raise ProviderError(f"{what}: HTTP {s} after {attempt} retries", status=s, retryable=True)
             retry_after = parse_retry_after(resp.headers.get("Retry-After"))
             d = policy.delay(attempt, retry_after)
-            if s == 429 and retry_after is None:  # per-minute quotas (NVIDIA trial): jitter alone is too short
+            if s in (429, 503) and retry_after is None:  # quotas / overloaded trial endpoints: jitter is too short
                 d = max(d, min(policy.max_delay_s, 5.0 * 2 ** attempt))
             log.warning("%s: HTTP %s, retry %d in %.1fs", what, s, attempt + 1, d)
         attempt += 1

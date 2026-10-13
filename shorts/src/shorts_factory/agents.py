@@ -253,8 +253,9 @@ MODE_RULES = {
             "the body,\nscience, how things work…) and make a video for a general audience 13+ that teaches ONE "
             "surprising, TRUE fact\nfrom that topic, shown through a mini story with your hero: the hero runs into "
             "the fact, the viewer learns it,\nthe ending lands it with a joke or twist. The fact is stated clearly "
-            "in plain words in the narration (by the last\nscene at the latest). Not a lesson for toddlers: no "
-            "counting, colours or ABC. Format: $format."),
+            "in plain words in the narration (by the last\nscene at the latest). Stay on the reference's topic "
+            "(a balloon experiment -> air, pressure or static\nelectricity, not apples). Not a lesson for toddlers: "
+            "no counting, colours or ABC. Format: $format."),
         "truth_rules": (
             "Truthfulness (critical): the taught fact and every real-world statement must be well-established, "
             "found in any\nencyclopedia (e.g. \"an octopus has three hearts\", \"honey never spoils\"). No "
@@ -263,8 +264,8 @@ MODE_RULES = {
             "claims. The hero's own story may be fiction."),
         "extra_criteria": (
             "- fact: the video teaches one clear, surprising, well-established fact from the reference's topic; it "
-            "is stated\n  plainly and the story makes it memorable (a missing, vague or doubtful fact is a blocking "
-            "defect);\n"),
+            "is stated\n  plainly and the story makes it memorable (a missing, vague or doubtful fact, or a fact "
+            "from another topic\n  than the reference's, is a blocking defect);\n"),
     },
 }
 
@@ -446,8 +447,10 @@ def _fingerprint(pkg: dict) -> str:
 
 
 class _Team:
-    def __init__(self, s: Settings, agent, critic, candidate: Candidate, analysis: Analysis, fmt: str):
+    def __init__(self, s: Settings, agent, critic, candidate: Candidate, analysis: Analysis, fmt: str,
+                 checker=None):
         self.s, self.agent, self.critic, self.candidate, self.analysis = s, agent, critic, candidate, analysis
+        self.checker = checker
         self.analysis_view = analysis.model_dump(include={
             "mode", "topic", "hook", "structure", "pacing", "plot_beats", "characters", "setting",
             "visual_description", "audience_interest_hypothesis", "unknowns", "limitations"})
@@ -469,6 +472,15 @@ class _Team:
             return {"reference_analysis": self.analysis_view, "story": self.out["writer"].model_dump()}
         return package(self.assemble(provisional=role == "director"), self.analysis_view)
 
+    def story_facts(self) -> list[str]:
+        """Edu mode: the taught fact is the point of the video, so doubtful claims go back to the writer at once
+        (the final-gate check found them only after the director and editor had worked, 2026-10-13)."""
+        if self.s.content_mode != "edu" or self.checker is None or not self.s.fact_check:
+            return []
+        fc = fact_check(self.checker, self.out["writer"], self.s.content_language)
+        return [f"fact-check: «{c.text}» is {c.verdict} ({c.reason}); use a well-established fact or tell it as "
+                "the hero's story" for c in fc.problems]
+
     def phase(self, role: str, notes: list[str]) -> bool:
         """Author <-> critic for one role on locked upstream work; True when the critic approves."""
         entries = self.report["phases"][role]
@@ -483,7 +495,8 @@ class _Team:
             try:
                 view = self.view(role)
                 checks = (_code_checks(self.s, self.assemble(), self.candidate, self.analysis) if role == "editor"
-                          else director_checks(self.out["director"]) if role == "director" else [])  # type: ignore
+                          else director_checks(self.out["director"]) if role == "director"  # type: ignore
+                          else self.story_facts() if role == "writer" else [])
             except TeamError as e:  # e.g. director shots do not match the story's scenes
                 checks = [str(e)]
             if checks:  # critics judge only work that passes the automatic checks
@@ -512,7 +525,7 @@ def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: 
                     checker=None, viewer=None) -> tuple[Script, str, dict]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
-    team = _Team(s, agent, critic, candidate, analysis, fmt)
+    team = _Team(s, agent, critic, candidate, analysis, fmt, checker)
     ref = "team@v2(" + ",".join([prompts.load(f"agent_{r}_v{AGENT_VERSIONS[r]}").ref for r in ROLES]
                                 + [prompts.load(f"critic_{r}_v{CRITIC_VERSIONS[r]}").ref for r in ROLES]) + ")"
     report = team.report | {"agent_model": getattr(agent, "model", "?"), "critic_model": getattr(critic, "model", "?"),

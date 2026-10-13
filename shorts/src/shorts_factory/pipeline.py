@@ -296,6 +296,10 @@ def stage_script(d: Deps, job: Job) -> Job:
         return _review(d, job, f"script rejected: {e}; retry with `shorts retry {job.id} --stage script`", None)
     except BudgetExceeded as e:
         raise Deferred(str(e)) from e
+    except ProviderError as e:  # overloaded/rate-limited text models: try again on the next run
+        if e.retryable:
+            raise Deferred(f"text provider unavailable: {e}") from e
+        raise
     return d.store.transition(job, JobState.SCRIPTED, stage="script",
                               payload={"script": script.model_dump(mode="json"), "prompt": pref, "format": fmt,
                                        "model": getattr(d.agent if team else d.text, "model", "?"),

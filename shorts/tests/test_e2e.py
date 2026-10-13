@@ -505,3 +505,18 @@ def test_regenerating_a_scene_whose_attempts_were_all_rejected(settings_env):
     assert pipeline.run_once(d)["state"] == "review_required"
     job = pipeline.advance(d, pipeline.retry(d.store, _job(d).id, "generate", regenerate_scenes=[0]))
     assert job.state == JobState.DONE_DRY_RUN and d.video.calls == 2 + 3  # a fresh attempt, then scenes 1-2
+
+
+def test_overloaded_text_model_defers_the_script_stage(settings_env):
+    from shorts_factory.net import ProviderError
+
+    d = _deps(settings_env)
+
+    class Busy:
+        model = "busy"
+
+        def structured(self, *a, **k):
+            raise ProviderError("HTTP 503 after 6 retries", status=503, retryable=True)
+    d.agent = Busy()
+    res = pipeline.run_once(d)
+    assert res["state"] == "analyzed" and "deferred" in (res["reason"] or "")

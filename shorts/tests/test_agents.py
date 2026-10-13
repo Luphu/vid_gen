@@ -237,3 +237,14 @@ def test_edu_mode_asks_for_one_true_fact_and_the_story_critic_checks_it():
     story = Fake()
     write_with_team(_s(), story, Fake(), CAND, AN, "x")
     assert "CORE SITUATION" in story.calls[0][1][0]["content"] and "EDUCATIONAL" not in story.calls[0][1][0]["content"]
+
+
+def test_edu_doubtful_fact_goes_back_to_the_writer_before_the_director_works():
+    doubtful = {"claims": [{"text": "a chop collapses the air pockets", "verdict": "uncertain", "reason": "r"}]}
+    checker = Fake(FactCheck=[doubtful, MOCK["FactCheck"]])
+    agent = Fake()
+    _, _, report = write_with_team(_s(CONTENT_MODE="edu", FACT_CHECK="true"), agent, Fake(), CAND, AN, "x",
+                                   checker=checker)
+    w = report["phases"]["writer"]
+    assert "air pockets" in w[0]["checks"][0] and "score" not in w[0] and w[1]["score"] == 9
+    assert agent.roles()[:3] == ["Story", "Story", "ShotPlan"]
