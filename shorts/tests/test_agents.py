@@ -167,3 +167,19 @@ def test_on_screen_text_repeating_the_narration_goes_back_to_the_editor():
     agent = Fake(Edit=[echo, MOCK["Edit"]])
     _, _, report = write_with_team(_s(), agent, Fake(), CAND, AN, "x")
     assert "repeats the narration" in report["phases"]["editor"][0]["checks"][0]
+
+
+def test_viewer_who_cannot_follow_sends_the_story_back_to_the_writer():
+    lost = {"summary": "A man and a sandwich... a crate?", "payoff": "none", "confusing": ["the crate"],
+            "understood": False}
+    viewer = Fake(ViewerReport=[lost, MOCK["ViewerReport"]], ViewerMatch=[{"match": False, "gap": "ending"},
+                                                                         MOCK["ViewerMatch"]])
+    # gate 1: first viewer lost, second understood -> still fails (both must follow); gate 2: both understood
+    agent, critic = Fake(), Fake()
+    _, _, report = write_with_team(_s(), agent, critic, CAND, AN, "x", viewer=viewer)
+    f = report["final"]
+    assert not f[0]["viewer"]["ok"] and f[0]["scores"] == {} and f[1]["viewer"]["ok"]
+    assert agent.roles() == ["Story", "ShotPlan", "Edit", "Story", "ShotPlan", "Edit"]
+    assert "viewer test" in agent.calls[3][1][-1]["content"] and "crate" in agent.calls[3][1][-1]["content"]
+    blind = viewer.calls[0][1][0]["content"]
+    assert "concept" not in blind and "voice_over" in blind  # the viewer never sees the writer's intent

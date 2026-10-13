@@ -283,7 +283,8 @@ def stage_script(d: Deps, job: Job) -> Job:
     report = None
     try:
         if team:
-            script, pref, report = write_with_team(d.s, d.agent, d.critic, cand, analysis, fmt, checker=d.analyst)
+            script, pref, report = write_with_team(d.s, d.agent, d.critic, cand, analysis, fmt, checker=d.analyst,
+                                                   viewer=d.analyst if d.s.viewer_test else None)
         else:
             script, pref = generate_script(d.s, d.text, cand, analysis, fmt, checker=d.analyst)
     except TeamRejected as e:  # no video is generated for a script the critics did not approve
