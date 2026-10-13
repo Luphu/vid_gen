@@ -49,6 +49,7 @@ def settings_env(tmp_path):
         "STORAGE_LOCAL_DIR": str(tmp_path / "storage"), "PROVIDER_MODE": "mock", "TREND_SOURCE": "fixture",
         "TREND_FIXTURE_FILE": str(fixture), "TTS_PROVIDER": "mock", "BUDGET_VIDEO_REQUESTS_PER_DAY": "20",
         "CONTENT_LANGUAGE": "ru", "NARRATION_WORDS_PER_S": "2.2",  # the mock data is Russian
+        "TTS_VOICES": '{"Mock_Voice": {"desc": "test voice", "wps": 2.2}}',
         "BUDGET_VIDEO_REQUESTS_PER_JOB": "8", "NIM_VIDEO_RESOLUTION": "256_9_16", "OUT_WIDTH": "360",
         "OUT_HEIGHT": "640", "FONT_FILE": _font(), "BURN_SUBTITLES": "true" if _font() else "false",
         "FFMPEG_THREADS": "2", "VIDEO_PROVIDER": "nvidia",

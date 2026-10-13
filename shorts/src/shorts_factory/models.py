@@ -272,6 +272,8 @@ class Script(Strict):
     scenes: list[Scene] = Field(min_length=1, max_length=10)
     # objects the story depends on (English); drawn into the opening image and checked on generated frames
     key_props: list[str] = Field(default_factory=list, max_length=4)
+    # TTS voice chosen for this story (one of TTS_VOICES); None = REPLICATE_TTS_VOICE
+    voice: str | None = Field(default=None, max_length=80)
     narration: str = Field(default="", max_length=2000)
     title: str = Field(min_length=3, max_length=100)
     description: str = Field(min_length=10, max_length=4500)

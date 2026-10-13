@@ -15,13 +15,15 @@ from ..ff import FF
 class TTS(Protocol):
     name: str
 
-    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float) -> Path | None: ...
+    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float,
+                   voice: str | None = None) -> Path | None: ...
 
 
 class NoTTS:
     name = "none"
 
-    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float) -> Path | None:
+    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float,
+                   voice: str | None = None) -> Path | None:
         return None
 
 
@@ -33,7 +35,8 @@ class MockTTS:
     def __init__(self, ff: FF):
         self.ff = ff
 
-    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float) -> Path | None:
+    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float,
+                   voice: str | None = None) -> Path | None:
         if not text.strip():
             return None
         dur = min(max_duration_s, max(1.0, len(text.split()) / 2.2))

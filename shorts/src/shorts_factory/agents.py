@@ -46,8 +46,8 @@ log = logging.getLogger(__name__)
 
 ROLES = ("writer", "director", "editor")
 # prompt versions per role (prompts/agent_<role>_v<N>.md, prompts/critic_<role>_v<N>.md)
-AGENT_VERSIONS = {"writer": 1, "director": 3, "editor": 2}
-CRITIC_VERSIONS = {"writer": 2, "director": 4, "editor": 3}
+AGENT_VERSIONS = {"writer": 2, "director": 4, "editor": 3}
+CRITIC_VERSIONS = {"writer": 3, "director": 5, "editor": 4}
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
 
@@ -120,6 +120,7 @@ class Edit(_Loose):
     description: str = Field(min_length=10, max_length=4500)
     tags: list[str] = Field(default_factory=list, max_length=20)
     disclosure_text: str = Field(min_length=5, max_length=200)
+    voice: str = ""
 
 
 class Criterion(_Loose):
@@ -210,6 +211,7 @@ def assemble(s: Settings, story: Story, plan: ShotPlan, edit: Edit) -> Script:
         return Script(concept=story.concept, target_audience=s.target_audience[:200], language=s.content_language,
                       hook=edit.hook, subject=plan.subject, visual_style=plan.visual_style, setting=plan.setting,
                       trend_link=story.trend_link, scenes=scenes, key_props=plan.key_props,
+                      voice=edit.voice or None,
                       narration=" ".join(e.narration for e in edit.scenes),
                       title=edit.title, description=edit.description, tags=edit.tags,
                       disclosure=Disclosure(made_for_kids=False, disclosure_text=edit.disclosure_text))
@@ -224,7 +226,7 @@ def package(script: Script, analysis_view: dict) -> dict:
     return {
         "reference_analysis": analysis_view, "concept": script.concept, "trend_link": script.trend_link,
         "hook": script.hook, "title": script.title, "description": script.description, "tags": script.tags,
-        "opening_image_prompt": compose_keyframe_prompt(script),
+        "voice": script.voice, "opening_image_prompt": compose_keyframe_prompt(script),
         "scenes": [{"index": sc.index, "duration_s": sc.duration_s, "narration": sc.narration,
                     "on_screen_text": sc.on_screen_text, "video_prompt": compose_video_prompt(script, sc)}
                    for sc in script.scenes],
@@ -239,7 +241,8 @@ def _values(s: Settings, analysis_view: dict, fmt: str) -> dict:
     return {"language": s.content_language, "audience": s.target_audience, "format": fmt,
             "min_s": s.target_min_s, "max_s": s.target_max_s, "min_scenes": min_scenes,
             "max_scenes": min(10, min_scenes + 3), "max_scene_s": round(max_scene, 2), "disclosure_hint": hint,
-            "analysis_json": prompts.untrusted(analysis_view), **wps_values(s)}
+            "analysis_json": prompts.untrusted(analysis_view), **wps_values(s),
+            "voices": "\n".join(f"  - {k}: {v.get('desc', '')}" for k, v in s.tts_voices.items()) or "  - (default)"}
 
 
 def _word_targets(s: Settings, story) -> dict:
@@ -248,6 +251,10 @@ def _word_targets(s: Settings, story) -> dict:
     for sc in story.scenes:
         lo, hi = narration_range(s, sc.duration_s)
         out[str(sc.index)] = f"{lo}-{hi} words for {sc.duration_s} s (or change duration_s and keep words/s)"
+    if s.tts_voices:  # faster voices need more words for the same scene
+        out["note"] = ("counts are for the default voice; scale by the chosen voice's speech rate: "
+                       + ", ".join(f"{k} {v.get('wps')} w/s" for k, v in s.tts_voices.items())
+                       + f" (default {s.narration_words_per_s} w/s)")
     return out
 
 
@@ -264,7 +271,7 @@ def fit_narration(s: Settings, client, story: Story, edit: Edit, attempts: int =
     left = []
     p = prompts.load("agent_fit_line_v1")
     for sc in edit.scenes:
-        lo, hi = narration_range(s, sc.duration_s)
+        lo, hi = narration_range(s, sc.duration_s, edit.voice or None)
         target = (lo + hi) // 2
         for _ in range(attempts):
             n = _words(sc.narration)
@@ -338,6 +345,8 @@ def _code_checks(s: Settings, script: Script, candidate: Candidate, analysis: An
     """Automatic checks of the final text; all of them are the editor's to fix."""
     max_scene = min(s.max_scene_seconds, 20.0)
     found = script.check_limits(s.target_min_s, s.target_max_s, max_scene) + narration_issues(s, script)
+    if s.tts_provider != "none" and s.tts_voices and script.voice not in s.tts_voices:
+        found.append(f"voice '{script.voice}' is not one of {sorted(s.tts_voices)}")
     found += [f"scene {sc.index} lasts {sc.duration_s}s; every scene needs at least {MIN_SCENE_S}s"
               for sc in script.scenes if sc.duration_s < MIN_SCENE_S]
     for sc in script.scenes:  # on-screen text must add something, not caption the voice-over

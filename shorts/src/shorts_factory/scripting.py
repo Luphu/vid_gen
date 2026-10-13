@@ -54,9 +54,13 @@ class PunchUp(BaseModel):
     script: Script
 
 
-def narration_range(s: Settings, duration_s: float) -> tuple[int, int]:
+def voice_wps(s: Settings, voice: str | None) -> float:
+    return float((s.tts_voices.get(voice or "") or {}).get("wps") or s.narration_words_per_s)
+
+
+def narration_range(s: Settings, duration_s: float, voice: str | None = None) -> tuple[int, int]:
     """Words a scene needs so the voice-over pauses at most narration_max_pause_s (and still fits by atempo)."""
-    wps = s.narration_words_per_s
+    wps = voice_wps(s, voice)
     return math.ceil(wps * max(0.0, duration_s - s.narration_max_pause_s)), math.floor(wps * duration_s * 1.25)
 
 
@@ -66,7 +70,7 @@ def narration_issues(s: Settings, script: Script, slack: float = 1.0) -> list[st
         return []
     issues = []
     for sc in script.scenes:
-        lo, hi = narration_range(s, sc.duration_s)
+        lo, hi = narration_range(s, sc.duration_s, getattr(script, "voice", None))
         n = len(re.findall(r"\w+", sc.narration))
         if not math.floor(lo * slack) <= n <= hi:
             issues.append(f"scene {sc.index} narration has {n} words, needs {lo}-{hi} for {sc.duration_s}s "

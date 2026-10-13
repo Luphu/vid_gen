@@ -15,7 +15,8 @@ CAND = Candidate(video_id="abcdefghijk", title="Котик красит забо
                  published_at=datetime.now(UTC), fetched_at=datetime.now(UTC))
 AN = Analysis(mode="metadata_only", video_id="abcdefghijk", topic="t", sources=["api"])
 
-RU = {"CONTENT_LANGUAGE": "ru", "NARRATION_WORDS_PER_S": "2.2"}  # the mock data is Russian
+RU = {"CONTENT_LANGUAGE": "ru", "NARRATION_WORDS_PER_S": "2.2",  # the mock data is Russian
+      "TTS_VOICES": '{"Mock_Voice": {"desc": "test voice", "wps": 2.2}}'}
 
 
 class Fake:
@@ -57,9 +58,9 @@ def test_phases_lock_upstream_work_and_final_gate_needs_every_critic():
     assert agent.roles() == ["Story", "Story", "ShotPlan", "Edit"]  # director/editor start from the locked story
     revision = agent.calls[1][1]
     assert revision[-2]["role"] == "assistant" and "open with the problem" in revision[-1]["content"]
-    # final gate: the writer was approved on the story alone -> asked again; director and editor approved
-    # exactly this package (the editor kept the story's text) -> not asked again
-    assert len(critic.calls) == 5
+    # final gate: the writer was approved on the story alone and the director before the editor chose the
+    # voice -> both asked again; the editor approved exactly this package -> not asked again
+    assert len(critic.calls) == 6
 
 
 def test_score_with_open_must_fix_does_not_pass():
@@ -147,7 +148,7 @@ def test_one_weak_criterion_blocks_approval_even_with_a_high_score():
     _, ref, report = write_with_team(_s(), agent, critic, CAND, AN, "x")
     w = report["phases"]["writer"]
     assert w[0]["score"] == 7 and "language scored 6/10" in w[0]["must_fix"][0] and w[1]["score"] == 9
-    assert "высокой пять" in agent.calls[1][1][-1]["content"] and "critic_writer@v2" in ref
+    assert "высокой пять" in agent.calls[1][1][-1]["content"] and "critic_writer@v3" in ref
     with pytest.raises(TeamRejected):  # a review without per-criterion scores is not an approval
         write_with_team(_s(), Fake(), Fake(Review=[{"score": 10, "criteria": [], "must_fix": []}]), CAND, AN, "x")
 
@@ -202,3 +203,24 @@ def test_director_must_put_key_props_into_the_setting_and_shots():
     bad = copy.deepcopy(plan)
     bad["scenes"][1]["must_show"] = ["a dragon"]
     assert any("not one of key_props" in c for c in director_checks(ShotPlan.model_validate(bad)))
+
+
+def test_editor_chooses_a_listed_voice_and_its_speech_rate_sets_the_word_count():
+    from shorts_factory.config import load_settings
+    from shorts_factory.scripting import narration_range
+
+    real = load_settings({})
+    fast, slow = (narration_range(real, 6, v)[0] for v in ("English_CaptivatingStoryteller", "English_Wiselady"))
+    assert fast > slow
+    assert "young female" in real.tts_voices["English_PlayfulGirl"]["desc"]
+    s = _s()
+    script, _, _ = write_with_team(s, Fake(), Fake(), CAND, AN, "x")
+    assert script.voice == "Mock_Voice"
+    odd = copy.deepcopy(MOCK["Edit"])
+    odd["voice"] = "Robot_9000"
+    agent = Fake(Edit=[odd, MOCK["Edit"]])
+    _, _, report = write_with_team(s, agent, Fake(), CAND, AN, "x")
+    assert any("Robot_9000" in c for c in report["phases"]["editor"][0]["checks"])
+    critic = Fake()
+    write_with_team(s, Fake(), critic, CAND, AN, "x")
+    assert "Mock_Voice: test voice" in critic.calls[2][1][0]["content"]  # the editor critic sees the voice list
