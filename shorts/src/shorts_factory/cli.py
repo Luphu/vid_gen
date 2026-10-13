@@ -237,11 +237,12 @@ def cmd_script_lab(s: Settings, args) -> int:
     d = _deps(s)
     if args.discover:
         pipeline.discover(d)
-    refs = lab.pick_references(d, args.count, args.video_id, args.include_used)
+    out = Path(args.out) if args.out else Path(s.work_dir) / "script-lab" / f"{datetime.now(UTC):%Y%m%d-%H%M%S}"
+    seen = {f.stem for f in (out.parent / "analysis").glob("*.json")} if args.fresh else set()
+    refs = lab.pick_references(d, args.count, args.video_id, args.include_used, skip=seen)
     if not refs:
         print("no references: run with --discover or `shorts discover`")
         return 2
-    out = Path(args.out) if args.out else Path(s.work_dir) / "script-lab" / f"{datetime.now(UTC):%Y%m%d-%H%M%S}"
     _print(lab.run_lab(d, refs, out))
     return 0
 
@@ -431,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
     lb.add_argument("--video-id", action="append", help="reference video id (repeatable)")
     lb.add_argument("--include-used", action="store_true", help="also references of earlier jobs")
     lb.add_argument("--discover", action="store_true", help="search trends first (YouTube search quota)")
+    lb.add_argument("--fresh", action="store_true", help="skip references already analysed in this lab directory")
     lb.add_argument("--out", help="report directory (default WORK_DIR/script-lab/<time>)")
     r = sub.add_parser("run")
     r.add_argument("--dry-run", action="store_true", help="force DRY_RUN for this run")

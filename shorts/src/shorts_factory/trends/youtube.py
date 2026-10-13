@@ -154,15 +154,24 @@ _SCRIPTS = {"ru": re.compile(r"[\u0400-\u04FF]"), "uk": re.compile(r"[\u0400-\u0
             "en": re.compile(r"^[\x00-\x7F\u2000-\u2BFF\U0001F000-\U0001FAFF\uFE0F]*$")}
 
 
+def _foreign_letters(title: str, langs: list[str]) -> bool:
+    """Letters outside Latin (and Cyrillic when ru/uk is wanted), e.g. Bengali or Devanagari."""
+    cyrillic = any(lang in ("ru", "uk") for lang in langs)
+    for ch in title:
+        if ch.isalpha() and not (ch.isascii() or "\u00c0" <= ch <= "\u024f"
+                                 or (cyrillic and "\u0400" <= ch <= "\u04ff")):
+            return True
+    return False
+
+
 def language_ok(c: Candidate, langs: list[str]) -> bool:
     """Metadata audio language if declared, otherwise the script of the title."""
     if not langs:
         return True
-    if c.default_language:
-        return c.default_language.split("-")[0].lower() in langs
-    if any(lang in _SCRIPTS and _SCRIPTS[lang].search(c.title) for lang in langs):
-        return True
-    return False
+    title_ok = not _foreign_letters(c.title, langs)
+    if c.default_language:  # channels mislabel: a Bengali title with defaultAudioLanguage=en (seen 2026-10-13)
+        return c.default_language.split("-")[0].lower() in langs and title_ok
+    return any(lang in _SCRIPTS and _SCRIPTS[lang].search(c.title) for lang in langs)
 
 
 def _best_thumbnail(thumbs: dict) -> str | None:

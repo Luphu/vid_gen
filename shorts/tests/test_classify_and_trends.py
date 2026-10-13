@@ -186,3 +186,38 @@ def test_selection_skips_stored_candidates_in_other_languages():
                    fetched_at=now, view_count=10**5)
     s = load_settings({"SELECT_REQUIRE_AI": "false", "TREND_LANGUAGES": "en"})
     assert select_candidate(s, [ru, en]).video_id == "ennnnnnnnnn"
+
+
+def test_kids_selection_skips_songs_and_lessons():
+    from datetime import UTC, datetime
+
+    from shorts_factory.config import load_settings
+    from shorts_factory.models import Candidate
+    from shorts_factory.pipeline import is_song_or_lesson, select_candidate
+
+    now = datetime.now(UTC)
+
+    def c(vid, title, views, **kw):
+        return Candidate(video_id=vid, title=title, channel_id=vid[:3], published_at=now, fetched_at=now,
+                         view_count=views, made_for_kids=True, **kw)
+    song = c("aaaaaaaaaaa", "ABC Song Shorts | Super Simple Songs", 9 * 10**6)
+    music = c("bbbbbbbbbbb", "Wheels on the bus", 8 * 10**6,
+              topic_categories=["https://en.wikipedia.org/wiki/Music"])
+    story = c("ccccccccccc", "The cat who stole the pie", 10**6)
+    s = load_settings({"SELECT_REQUIRE_AI": "false", "TREND_MODE": "kids", "TREND_REQUIRE_MADE_FOR_KIDS": "true"})
+    assert select_candidate(s, [song, music, story]).video_id == "ccccccccccc"
+    assert not is_song_or_lesson(c("ddddddddddd", "Abcdef the dancer's cat", 1), s.trend_skip_words)
+
+
+def test_declared_english_with_non_latin_title_is_not_english():
+    from datetime import UTC, datetime
+
+    from shorts_factory.models import Candidate
+    from shorts_factory.trends.youtube import language_ok
+
+    now = datetime.now(UTC)
+    bn = Candidate(video_id="bnnnnnnnnnn", title="দাঁত পরিষ্কার না করলে কী হয়? 🪥", channel_id="UC1",
+                   published_at=now, fetched_at=now, default_language="en")
+    en = Candidate(video_id="ennnnnnnnnn", title="Halloween Food For Animals! 🎃 #shorts", channel_id="UC2",
+                   published_at=now, fetched_at=now, default_language="en-US")
+    assert not language_ok(bn, ["en"]) and language_ok(en, ["en"])
