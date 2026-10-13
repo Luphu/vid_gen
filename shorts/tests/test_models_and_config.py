@@ -308,3 +308,18 @@ def test_text_prone_props_rejected_in_scene_prompts(bad):
     with pytest.raises(ValidationError, match="fake lettering"):
         Script.model_validate(data)
     Script.model_validate(data, context={"stored": True})
+
+
+def test_key_props_go_into_prompts_and_reject_packaged_goods():
+    from shorts_factory.scripting import compose_keyframe_prompt, compose_video_prompt
+
+    data = copy.deepcopy(SCRIPT)
+    data["key_props"] = ["a tiny white origami crane"]
+    data["scenes"][0]["must_show"] = ["a tiny white origami crane"]
+    s = Script.model_validate(data)
+    assert "Clearly visible in the scene: a tiny white origami crane" in compose_keyframe_prompt(s)
+    assert "Clearly visible in the shot: a tiny white origami crane" in compose_video_prompt(s, s.scenes[0])
+    assert "Clearly visible" not in compose_video_prompt(s, s.scenes[1])
+    data["key_props"] = ["a soda can"]
+    with pytest.raises(ValidationError):
+        Script.model_validate(data)

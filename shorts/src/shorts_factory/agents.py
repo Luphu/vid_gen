@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 
 ROLES = ("writer", "director", "editor")
 # prompt versions per role (prompts/agent_<role>_v<N>.md, prompts/critic_<role>_v<N>.md)
-AGENT_VERSIONS = {"writer": 1, "director": 2, "editor": 2}
+AGENT_VERSIONS = {"writer": 1, "director": 3, "editor": 2}
 CRITIC_VERSIONS = {"writer": 2, "director": 4, "editor": 3}
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
@@ -80,6 +80,7 @@ class Shot(_Loose):
     generation_prompt: str = Field(min_length=20, max_length=700)
     subject_state: str | None = Field(default=None, max_length=200)
     important_region: Literal["center", "top", "bottom"] = "center"
+    must_show: list[str] = Field(default_factory=list, max_length=4)
 
     @field_validator("generation_prompt")
     @classmethod
@@ -96,6 +97,7 @@ class ShotPlan(_Loose):
     subject: str = Field(min_length=15, max_length=400)
     setting: str = Field(min_length=10, max_length=500)
     visual_style: str = Field(min_length=10, max_length=250)
+    key_props: list[str] = Field(default_factory=list, max_length=4)
     scenes: list[Shot] = Field(min_length=1, max_length=10)
 
     @field_validator("subject", "setting", "visual_style")
@@ -202,11 +204,13 @@ def assemble(s: Settings, story: Story, plan: ShotPlan, edit: Edit) -> Script:
     try:
         scenes = [Scene(index=e.index, duration_s=e.duration_s, generation_prompt=shots[e.index].generation_prompt,
                         subject_state=shots[e.index].subject_state, narration=e.narration,
-                        on_screen_text=e.on_screen_text, important_region=shots[e.index].important_region)
+                        on_screen_text=e.on_screen_text, important_region=shots[e.index].important_region,
+                        must_show=shots[e.index].must_show)
                   for e in edit.scenes]
         return Script(concept=story.concept, target_audience=s.target_audience[:200], language=s.content_language,
                       hook=edit.hook, subject=plan.subject, visual_style=plan.visual_style, setting=plan.setting,
-                      trend_link=story.trend_link, scenes=scenes, narration=" ".join(e.narration for e in edit.scenes),
+                      trend_link=story.trend_link, scenes=scenes, key_props=plan.key_props,
+                      narration=" ".join(e.narration for e in edit.scenes),
                       title=edit.title, description=edit.description, tags=edit.tags,
                       disclosure=Disclosure(made_for_kids=False, disclosure_text=edit.disclosure_text))
     except ValidationError as e:
@@ -345,6 +349,26 @@ def _code_checks(s: Settings, script: Script, candidate: Candidate, analysis: An
     return found + ["originality: " + i for i in originality_issues(script, candidate, analysis)]
 
 
+def director_checks(plan: ShotPlan) -> list[str]:
+    """Key props must be drawn into the opening image (setting) and assigned to the shots that show them."""
+    found = []
+    setting = plan.setting.lower()
+    props = {p.lower(): p for p in plan.key_props}
+    for p in plan.key_props:
+        head = re.findall(r"[a-z]+", p.lower())[-1:] or [""]
+        if head[0] not in setting:
+            found.append(f"key prop '{p}' is not described in the setting: the opening image is drawn from the "
+                         "setting, so a prop missing there never appears")
+    shown = set()
+    for sh in plan.scenes:
+        for m in sh.must_show:
+            if m.lower() not in props:
+                found.append(f"shot {sh.index}: must_show '{m}' is not one of key_props {list(props.values())}")
+            shown.add(m.lower())
+    found += [f"key prop '{p}' is not in must_show of any shot" for k, p in props.items() if k not in shown]
+    return found
+
+
 def _provisional_edit(story: Story, hint: str) -> Edit:
     """Before the editor works, the director's shots are judged against the screenwriter's own text."""
     return Edit(hook=story.hook, title=story.title, tags=story.tags, disclosure_text=hint.rstrip("."),
@@ -412,8 +436,8 @@ class _Team:
             entries.append(entry)
             try:
                 view = self.view(role)
-                checks = _code_checks(self.s, self.assemble(), self.candidate, self.analysis) \
-                    if role == "editor" else []
+                checks = (_code_checks(self.s, self.assemble(), self.candidate, self.analysis) if role == "editor"
+                          else director_checks(self.out["director"]) if role == "director" else [])  # type: ignore
             except TeamError as e:  # e.g. director shots do not match the story's scenes
                 checks = [str(e)]
             if checks:  # critics judge only work that passes the automatic checks

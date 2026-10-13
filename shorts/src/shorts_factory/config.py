@@ -115,6 +115,8 @@ class Settings(BaseModel):
     max_keyframe_attempts: int = 3
     # Quality gates using the NVIDIA models: lettering in generated images/clips, factual claims in the script
     check_lettering: bool = True
+    # key story props must be visible: opening image and two frames of every clip (vision model, calibrated 12/12)
+    check_props: bool = True
     # lettering still found on the last paid attempt: "review" stops for a human (it may be a brand);
     # "accept" keeps the clip with a warning
     lettering_last_attempt: Literal["review", "accept"] = "review"

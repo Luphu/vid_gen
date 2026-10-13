@@ -63,3 +63,40 @@ def frame_at(ff: FF, clip: Path, out: Path, *, at_s: float | None = None, last: 
     vf = ["-vf", f"scale={width}:-2"] if width else []
     ff.run([*seek, "-i", str(clip), "-frames:v", "1", *vf, "-q:v", "3", str(out)])
     return out
+
+
+PROPS_PROMPT = (
+    "Look carefully at this image. For each object in the list, say whether it is clearly visible in the image "
+    "(at least partly, recognisable as that object). Objects: {items}. Answer ONLY with JSON: "
+    '{{"items": [{{"name": string, "visible": true|false}}]}}')
+
+
+class PropCheck(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    class Item(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+        name: str
+        visible: bool
+
+    items: list[Item] = []
+
+
+def missing_props(vision, images: list[Path], props: list[str]) -> list[str] | None:
+    """Props not visible in ANY of the images; None when the model answer is unusable (does not block)."""
+    if not props:
+        return []
+    seen: set[str] = set()
+    for image in images:
+        if len(seen) == len(props):  # everything already found: no more vision calls
+            break
+        content = [*vision.frames_content([image]),
+                   {"type": "text", "text": PROPS_PROMPT.format(items="; ".join(props))}]
+        try:
+            out, _ = vision.structured([{"role": "user", "content": content}], PropCheck, max_tokens=300)
+        except StructuredOutputError as e:
+            log.warning("prop check inconclusive for %s: %s", image.name, e)
+            return None
+        names = {i.name.strip().lower() for i in out.items if i.visible}
+        seen |= {p for p in props if p.lower() in names or any(p.lower() in n or n in p.lower() for n in names)}
+    return [p for p in props if p not in seen]
