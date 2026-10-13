@@ -148,7 +148,7 @@ def test_one_weak_criterion_blocks_approval_even_with_a_high_score():
     _, ref, report = write_with_team(_s(), agent, critic, CAND, AN, "x")
     w = report["phases"]["writer"]
     assert w[0]["score"] == 7 and "language scored 6/10" in w[0]["must_fix"][0] and w[1]["score"] == 9
-    assert "высокой пять" in agent.calls[1][1][-1]["content"] and "critic_writer@v3" in ref
+    assert "высокой пять" in agent.calls[1][1][-1]["content"] and "critic_writer@v4" in ref
     with pytest.raises(TeamRejected):  # a review without per-criterion scores is not an approval
         write_with_team(_s(), Fake(), Fake(Review=[{"score": 10, "criteria": [], "must_fix": []}]), CAND, AN, "x")
 
@@ -224,3 +224,16 @@ def test_editor_chooses_a_listed_voice_and_its_speech_rate_sets_the_word_count()
     critic = Fake()
     write_with_team(s, Fake(), critic, CAND, AN, "x")
     assert "Mock_Voice: test voice" in critic.calls[2][1][0]["content"]  # the editor critic sees the voice list
+
+
+def test_edu_mode_asks_for_one_true_fact_and_the_story_critic_checks_it():
+    agent, critic = Fake(), Fake()
+    s = _s(CONTENT_MODE="edu")
+    write_with_team(s, agent, critic, CAND, AN, "a common myth busted by the hero")
+    writer_prompt, story_critic = agent.calls[0][1][0]["content"], critic.calls[0][1][0]["content"]
+    assert "EDUCATIONAL short" in writer_prompt and "ONE surprising, TRUE fact" in writer_prompt
+    assert "a common myth busted by the hero" in writer_prompt and "$" not in writer_prompt.split("<untrusted")[0]
+    assert "- fact:" in story_critic
+    story = Fake()
+    write_with_team(_s(), story, Fake(), CAND, AN, "x")
+    assert "CORE SITUATION" in story.calls[0][1][0]["content"] and "EDUCATIONAL" not in story.calls[0][1][0]["content"]

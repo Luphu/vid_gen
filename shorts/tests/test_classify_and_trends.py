@@ -221,3 +221,22 @@ def test_declared_english_with_non_latin_title_is_not_english():
     en = Candidate(video_id="ennnnnnnnnn", title="Halloween Food For Animals! 🎃 #shorts", channel_id="UC2",
                    published_at=now, fetched_at=now, default_language="en-US")
     assert not language_ok(bn, ["en"]) and language_ok(en, ["en"])
+
+
+def test_edu_mode_keeps_science_lessons_but_skips_toddler_basics():
+    from datetime import UTC, datetime
+
+    from shorts_factory.config import load_settings
+    from shorts_factory.models import Candidate
+    from shorts_factory.pipeline import select_candidate
+
+    now = datetime.now(UTC)
+
+    def c(vid, title, views):
+        return Candidate(video_id=vid, title=title, channel_id=vid[:3], published_at=now, fetched_at=now,
+                         view_count=views, made_for_kids=True)
+    abc = c("aaaaaaaaaaa", "Learn ABC with Animals", 9 * 10**6)
+    sci = c("bbbbbbbbbbb", "Learn why the sky is blue | Science for kids", 10**6)
+    env = {"SELECT_REQUIRE_AI": "false", "TREND_MODE": "kids", "TREND_REQUIRE_MADE_FOR_KIDS": "true"}
+    assert select_candidate(load_settings({**env, "CONTENT_MODE": "edu"}), [abc, sci]).video_id == "bbbbbbbbbbb"
+    assert select_candidate(load_settings(env), [abc, sci]) is None  # story mode skips every lesson

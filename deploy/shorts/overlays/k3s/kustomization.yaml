@@ -16,7 +16,8 @@ configMapGenerator:
       - SELECT_REQUIRE_AI=false
       - TREND_TOP_N=30
       # quoted: in YAML " #" starts a comment and silently cut the list to the first query
-      - "TREND_KEYWORDS=cartoon for kids #shorts,kids story #shorts,funny cartoon #shorts,kids animation #shorts,cartoon story #shorts"
+      - "TREND_KEYWORDS=science for kids #shorts,fun facts for kids #shorts,animal facts for kids #shorts,space for kids #shorts,how it works for kids #shorts,educational videos for kids #shorts"
+      - CONTENT_MODE=edu
       - TREND_LANGUAGES=en
       - TREND_REGION=US
       - TREND_LANGUAGE=en

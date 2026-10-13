@@ -111,7 +111,7 @@ def pick_format(s: Settings, key: str) -> str:
     """Deterministic per job, rotates across jobs to avoid one repeated template."""
     import hashlib
 
-    formats = s.content_formats or ["a short story"]
+    formats = (s.edu_formats if s.content_mode == "edu" else s.content_formats) or ["a short story"]
     return formats[int(hashlib.sha256(key.encode()).hexdigest(), 16) % len(formats)]
 
 

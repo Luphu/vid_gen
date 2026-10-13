@@ -239,6 +239,19 @@ class Settings(BaseModel):
     viewer_test: bool = True
     viewer_runs: int = 2  # independent viewers that must all follow the story
     # Story formats: a trend is a situation + emotion, so the new video retells one (fact lists lost the trend)
+    # story: retell the situation of a kids' trend as a comedy story; edu: take the TOPIC of a popular educational
+    # kids' short and teach one true, checkable fact through a mini story (general audience 13+)
+    content_mode: Literal["story", "edu"] = "story"
+    edu_formats: list[str] = Field(default_factory=lambda: [
+        "a surprising true fact shown through a mini story", "a common myth busted by the hero",
+        "how it really works, discovered by the hero", "a true 'what happens if' with a funny twist"])
+    # edu mode: skip toddler basics and songs (no fact to teach a 13+ audience); "learn" and science stay in
+    edu_skip_words: list[str] = Field(default_factory=lambda: [
+        "song", "songs", "nursery rhyme", "nursery rhymes", "rhyme", "rhymes", "lyrics", "karaoke", "sing along",
+        "sing-along", "singalong", "music video", "lullaby", "lullabies", "abc", "abcs", "alphabet", "phonics",
+        "learn colors", "learn colours", "colors for kids", "learn numbers", "learn to count", "counting",
+        "times tables", "dance", "craft", "crafts", "diy", "tutorial", "how to make",
+        "hindi", "urdu", "bangla", "bengali", "tamil", "telugu", "marathi", "spanish", "arabic"])
     content_formats: list[str] = Field(default_factory=lambda: [
         "a mishap, panic and an unexpected fix", "a transformation of the hero or an object",
         "a mini story with a twist at the end", "a contest or a bet with an unexpected winner",
