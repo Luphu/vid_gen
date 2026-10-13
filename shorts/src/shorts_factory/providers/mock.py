@@ -186,6 +186,7 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
                                    "subject_state": None, "important_region": "center"} for x in sc["scenes"]]}
     out["Edit"] = {"hook": sc["hook"], "title": sc["title"], "description": sc["description"], "tags": sc["tags"],
                    "disclosure_text": sc["disclosure"]["disclosure_text"],
+                   "voice": "Mock_Voice",
                    "scenes": [{"index": x["index"], "duration_s": x["duration_s"], "narration": x["narration"],
                                "on_screen_text": x["on_screen_text"]} for x in sc["scenes"]]}
     out["Lines"] = {"variants": [says[1]]}

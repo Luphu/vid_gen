@@ -255,12 +255,13 @@ class ReplicateTTS:
     def __init__(self, s: Settings, budget: BudgetGuard, ff: FF, rc: ReplicateClient | None = None):
         self.s, self.budget, self.ff, self.rc = s, budget, ff, rc or ReplicateClient(s)
 
-    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float) -> Path | None:
+    def synthesize(self, text: str, language: str, out_wav: Path, max_duration_s: float,
+                   voice: str | None = None) -> Path | None:
         if not text.strip():
             return None
         self.budget.reserve("tts")
         pred = self.rc.create(self.s.replicate_tts_model, {
-            "text": text[:2000], "voice_id": self.s.replicate_tts_voice, "speed": 1.05,
+            "text": text[:2000], "voice_id": voice or self.s.replicate_tts_voice, "speed": 1.05,
             "audio_format": "wav", "sample_rate": 32000, "channel": "mono", "language_boost": "Automatic",
         }, billable=False, wait=60)
         pred = self.rc.wait(pred, 180)

@@ -14,7 +14,8 @@ from shorts_factory.providers.mock import default_mock_responses
 
 SCRIPT = default_mock_responses()["Script"]
 
-RU = {"CONTENT_LANGUAGE": "ru", "NARRATION_WORDS_PER_S": "2.2"}  # the mock data is Russian
+RU = {"CONTENT_LANGUAGE": "ru", "NARRATION_WORDS_PER_S": "2.2",  # the mock data is Russian
+      "TTS_VOICES": '{"Mock_Voice": {"desc": "test voice", "wps": 2.2}}'}
 
 
 def test_script_valid_and_limits():

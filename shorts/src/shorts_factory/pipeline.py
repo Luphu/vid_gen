@@ -491,7 +491,8 @@ def _stage_generate(d: Deps, job: Job) -> Job:
 
     narration = []
     for sc in script.scenes:
-        wav = d.tts.synthesize(sc.narration, script.language, work / f"tts_{sc.index:02d}.wav", sc.duration_s) \
+        wav = d.tts.synthesize(sc.narration, script.language, work / f"tts_{sc.index:02d}.wav", sc.duration_s,
+                               voice=script.voice) \
             if d.tts else None
         nkey = None
         if wav:
@@ -547,7 +548,8 @@ def stage_render(d: Deps, job: Job) -> Job:
         if p is not None and not _media_ok(d, p):  # cheap: re-synthesize instead of failing
             log.warning("narration %s unreadable (size %d); re-synthesizing", k, p.stat().st_size)
             p.unlink(missing_ok=True)
-            p = d.tts.synthesize(sc.narration, script.language, p, sc.duration_s) if d.tts else None
+            p = d.tts.synthesize(sc.narration, script.language, p, sc.duration_s, voice=script.voice) \
+                if d.tts else None
             if p is not None:
                 d.artifacts.put_file(k, p, "audio/wav")
         narr.append(p)

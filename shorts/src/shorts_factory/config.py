@@ -123,6 +123,15 @@ class Settings(BaseModel):
     fact_check: bool = True
     replicate_tts_model: str = "minimax/speech-02-turbo"
     replicate_tts_voice: str = "English_PlayfulGirl"  # voice id from the model schema
+    # Voices the editor may choose from (verified 2026-10-13: pitch and rate measured on one 27-word sample);
+    # "wps" is the voice's speech rate used for the per-scene word count
+    tts_voices: dict = Field(default_factory=lambda: {
+        "English_PlayfulGirl": {"desc": "young female, bright high voice, fast and playful", "wps": 3.0},
+        "English_Wiselady": {"desc": "mature female, warm and calm, slower", "wps": 2.4},
+        "English_CaptivatingStoryteller": {"desc": "adult male, mid pitch, fast dramatic storyteller", "wps": 3.2},
+        "English_FriendlyPerson": {"desc": "adult male, relaxed everyday guy-next-door", "wps": 2.7},
+        "English_Deep-VoicedGentleman": {"desc": "deep adult male, slow and weighty, mock-serious", "wps": 2.6},
+    })
     replicate_poll_interval_s: float = 3.0
 
     budget: Budget = Field(default_factory=Budget)
