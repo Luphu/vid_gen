@@ -38,8 +38,8 @@ def test_retry_after_honoured_and_bounded():
                         RetryPolicy(max_retries=2), what="t", sleep=sleeps.append)
     assert r.status_code == 200 and sleeps == [7.0]
     with pytest.raises(ProviderError) as e:
-        send_with_retry(_seq(*[httpx.Response(429)] * 3), RetryPolicy(max_retries=2), what="t",
-                        sleep=lambda _: None)
+        send_with_retry(_seq(*[httpx.Response(429)] * 5), RetryPolicy(max_retries=2), what="t",
+                        sleep=lambda _: None)  # 429 gets two extra retries (per-minute quotas)
     assert e.value.retryable
     assert parse_retry_after("bogus") is None
 

@@ -108,7 +108,9 @@ def send_with_retry(
                 raise OutcomeUnknown(f"{what}: HTTP {s} for billable request", request_id=rid)
             if not retryable:
                 return resp
-            if attempt >= policy.max_retries:
+            # per-minute quotas (NVIDIA trial) need more patience than server errors: up to ~3 minutes
+            limit = policy.max_retries + (2 if s == 429 else 0)
+            if attempt >= limit:
                 raise ProviderError(f"{what}: HTTP {s} after {attempt} retries", status=s, retryable=True)
             retry_after = parse_retry_after(resp.headers.get("Retry-After"))
             d = policy.delay(attempt, retry_after)

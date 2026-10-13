@@ -15,7 +15,8 @@ images give them brand-like labels. Use unbranded things: a fry, an apple, a soc
 Truthfulness: it is a STORY. No real-world claims except common knowledge; no numbers, records, studies.
 The characters' own impossible events are fine without any "imagine" framing; never state a false
 general fact about the real world. Stakes are playful and advertiser-friendly: embarrassment, a race, a lost thing, a
-broken plan — never death, fire, burning, fireworks, weapons, injury, horror or dangerous acts a child
+broken plan — never death, fire, burning, fireworks, weapons, injury, horror, gambling (casino, chips, bets for
+money), alcohol, smoking or dangerous acts a child
 could copy.
 
 Storytelling:

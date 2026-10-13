@@ -30,6 +30,7 @@ Automatic blocking defects (each one: must_fix, score <= 6):
 - no moment that is actually funny or surprising;
 - any grammar error, made-up or misused word, calque from English, or unnatural phrasing in $language.
 - the story needs a packaged or branded product (packet, bottle, can, box, wrapper, cereal, soda).
+- gambling (casino, chips, betting money), alcohol or smoking anywhere in the story or narration.
 
 Production limits (do not demand anything beyond them): one hero, one location, one continuous take; every
 scene is ONE simple physical action that a 5-second AI clip can show — never ask for chains of several
