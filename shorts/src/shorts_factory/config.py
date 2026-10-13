@@ -224,6 +224,9 @@ class Settings(BaseModel):
     agent_final_rounds: int = 3  # final gate: all critics on the final package
     agent_max_tokens: int = 4096
     agent_temperature: float = 0.7
+    # blind viewer (NVIDIA analyst model) must retell the final story as the writer intended before the critics
+    viewer_test: bool = True
+    viewer_runs: int = 2  # independent viewers that must all follow the story
     # Story formats: a trend is a situation + emotion, so the new video retells one (fact lists lost the trend)
     content_formats: list[str] = Field(default_factory=lambda: [
         "a mishap, panic and an unexpected fix", "a transformation of the hero or an object",

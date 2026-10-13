@@ -57,7 +57,9 @@ def test_phases_lock_upstream_work_and_final_gate_needs_every_critic():
     assert agent.roles() == ["Story", "Story", "ShotPlan", "Edit"]  # director/editor start from the locked story
     revision = agent.calls[1][1]
     assert revision[-2]["role"] == "assistant" and "open with the problem" in revision[-1]["content"]
-    assert len(critic.calls) == 7
+    # final gate: the writer was approved on the story alone -> asked again; director and editor approved
+    # exactly this package (the editor kept the story's text) -> not asked again
+    assert len(critic.calls) == 5
 
 
 def test_score_with_open_must_fix_does_not_pass():
@@ -69,16 +71,18 @@ def test_score_with_open_must_fix_does_not_pass():
 
 
 def test_final_gate_failure_reruns_that_role_and_everything_after_it():
-    critic = Fake(Review=[_rv(9), _rv(9), _rv(9),               # phases
-                          _rv(9), _rv(6, "scene 2: one action"), _rv(9),  # final gate 1: director fails
-                          _rv(9), _rv(9),                       # director and editor phases again
-                          _rv(9)])                              # final gate 2
-    agent = Fake()
+    edited = copy.deepcopy(MOCK["Edit"])
+    edited["scenes"][2]["on_screen_text"] = "Как новенький"  # the editor changes the text after the director
+    critic = Fake(Review=[_rv(9), _rv(9), _rv(9),                  # phases
+                          _rv(9), _rv(6, "scene 2: one action"),   # final gate 1: writer ok, director fails;
+                          _rv(9), _rv(9),                          # the editor approved this exact package
+                          _rv(9)])                                 # director, editor phases; final gate 2: writer
+    agent = Fake(Edit=[edited])
     _, _, report = write_with_team(_s(), agent, critic, CAND, AN, "x")
     assert agent.roles() == ["Story", "ShotPlan", "Edit", "ShotPlan", "Edit"]
     assert "scene 2: one action" in agent.calls[3][1][-1]["content"]
     assert "adapt yours" in agent.calls[4][1][-1]["content"]
-    assert [f["scores"]["director"] for f in report["final"]] == [6, 9]
+    assert [f["scores"]["director"] for f in report["final"]] == [6, 9] and len(critic.calls) == 8
 
 
 def test_short_voice_over_is_fitted_by_a_one_line_rewrite_then_editor_is_asked():
@@ -167,3 +171,19 @@ def test_on_screen_text_repeating_the_narration_goes_back_to_the_editor():
     agent = Fake(Edit=[echo, MOCK["Edit"]])
     _, _, report = write_with_team(_s(), agent, Fake(), CAND, AN, "x")
     assert "repeats the narration" in report["phases"]["editor"][0]["checks"][0]
+
+
+def test_viewer_who_cannot_follow_sends_the_story_back_to_the_writer():
+    lost = {"summary": "A man and a sandwich... a crate?", "payoff": "none", "confusing": ["the crate"],
+            "understood": False}
+    viewer = Fake(ViewerReport=[lost, MOCK["ViewerReport"]], ViewerMatch=[{"match": False, "gap": "ending"},
+                                                                         MOCK["ViewerMatch"]])
+    # gate 1: first viewer lost, second understood -> still fails (both must follow); gate 2: both understood
+    agent, critic = Fake(), Fake()
+    _, _, report = write_with_team(_s(), agent, critic, CAND, AN, "x", viewer=viewer)
+    f = report["final"]
+    assert not f[0]["viewer"]["ok"] and f[0]["scores"] == {} and f[1]["viewer"]["ok"]
+    assert agent.roles() == ["Story", "ShotPlan", "Edit", "Story", "ShotPlan", "Edit"]
+    assert "viewer test" in agent.calls[3][1][-1]["content"] and "crate" in agent.calls[3][1][-1]["content"]
+    blind = viewer.calls[0][1][0]["content"]
+    assert "concept" not in blind and "voice_over" in blind  # the viewer never sees the writer's intent

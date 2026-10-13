@@ -137,6 +137,44 @@ class Lines(_Loose):
     variants: list[str] = Field(min_length=1, max_length=8)
 
 
+class ViewerReport(_Loose):
+    summary: str = ""
+    payoff: str = ""
+    confusing: list[str] = Field(default_factory=list)
+    understood: bool = False
+
+
+class ViewerMatch(_Loose):
+    match: bool = False
+    gap: str = ""
+
+
+def viewer_test(viewer, script: Script, runs: int = 2) -> tuple[bool, dict]:
+    """Blind viewer: sees only what the video shows and says, retells it; a second call compares the retelling
+    with the writer's intent. Catches stories the critics approve but nobody can follow. The verdict is noisy on
+    borderline stories, so ``runs`` independent viewers must all get it (calibrated 2026-10-13)."""
+    results = [_one_viewer(viewer, script) for _ in range(max(1, runs))]
+    lost = [r for r in results if not r["ok"]]
+    out = lost[0] if lost else results[0]
+    return not lost, out | {"ok": not lost, "runs": len(results), "passed": len(results) - len(lost)}
+
+
+def _one_viewer(viewer, script: Script) -> dict:
+    seen = {"hero": script.subject, "location": script.setting,
+            "scenes": [{"picture": sc.generation_prompt + (f" ({sc.subject_state})" if sc.subject_state else ""),
+                        "voice_over": sc.narration, "text_on_screen": sc.on_screen_text} for sc in script.scenes]}
+    p = prompts.load("viewer_v1")
+    rep, _ = viewer.structured([{"role": "user", "content": p.render(video_json=prompts.untrusted(seen, 8000))}],
+                               ViewerReport, max_tokens=800)
+    intent = {"concept": script.concept, "hook": script.hook, "title": script.title,
+              "ending_voice_over": script.scenes[-1].narration}
+    m = prompts.load("viewer_match_v1")
+    res, _ = viewer.structured([{"role": "user", "content": m.render(compare_json=prompts.untrusted(
+        {"writer_intent": intent, "viewer_retelling": rep.model_dump()}, 6000))}], ViewerMatch, max_tokens=400)
+    return {"ok": rep.understood and res.match, "summary": rep.summary, "payoff": rep.payoff,
+            "confusing": rep.confusing, "match": res.match, "gap": res.gap}
+
+
 OUTPUT = {"writer": Story, "director": ShotPlan, "editor": Edit}
 
 
@@ -330,6 +368,13 @@ def _verdict(s: Settings, rv: Review) -> tuple[int, list[str]]:
     return score, fixes or [f"critic scored {rv.score}/10; raise the quality"]
 
 
+def _fingerprint(pkg: dict) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(json.dumps(pkg, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 class _Team:
     def __init__(self, s: Settings, agent, critic, candidate: Candidate, analysis: Analysis, fmt: str):
         self.s, self.agent, self.critic, self.candidate, self.analysis = s, agent, critic, candidate, analysis
@@ -341,6 +386,7 @@ class _Team:
         self.out: dict[str, BaseModel] = {}
         self.previous: dict[str, Review] = {}
         self.report: dict = {"phases": {r: [] for r in ROLES}, "final": [], "escalations": []}
+        self.approved_at: dict[str, str] = {}  # role -> fingerprint of the final package its critic approved
 
     def assemble(self, provisional: bool = False) -> Script:
         edit = self.out.get("editor")
@@ -382,12 +428,18 @@ class _Team:
             entry["must_fix"], entry["suggestions"] = notes, rv.suggestions[:5]
             log.info("team %s round %d: score %d, must fix %d", role, entry["round"], entry["score"], len(notes))
             if not notes:
+                self.approved_at.pop(role, None)
+                if "director" in self.out:  # the writer is approved on the story alone
+                    try:
+                        self.approved_at[role] = _fingerprint(package(self.assemble(), self.analysis_view))
+                    except TeamError:
+                        pass
                 return True
         return False
 
 
 def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: Analysis, fmt: str,
-                    checker=None) -> tuple[Script, str, dict]:
+                    checker=None, viewer=None) -> tuple[Script, str, dict]:
     if s.publish_made_for_kids is True:
         raise ScriptRejected("made-for-kids content is out of scope for this pipeline")
     team = _Team(s, agent, critic, candidate, analysis, fmt)
@@ -427,8 +479,21 @@ def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: 
         entry: dict = {"round": g, "scores": {}, "must_fix": {}}
         team.report["final"].append(entry)
         failing: dict[str, list[str]] = {}
+        if viewer is not None:  # a story nobody can follow goes back to the writer before the critics
+            ok, entry["viewer"] = viewer_test(viewer, script, s.viewer_runs)
+            log.info("team final gate %d: viewer %s: %s", g, "understood" if ok else "lost", entry["viewer"]["summary"])
+            if not ok:
+                v = entry["viewer"]
+                failing["writer"] = ["viewer test: a first-time viewer retold it as «" + v["summary"] + "»"
+                                     + (f"; missed: {v['gap']}" if v["gap"] else "")
+                                     + (f"; confusing: {'; '.join(v['confusing'][:4])}" if v["confusing"] else "")
+                                     + ". Make the story easy to follow from the picture, voice-over and text alone."]
         pkg = package(script, team.analysis_view)
-        for role in ROLES:
+        fp = _fingerprint(pkg)
+        for role in ([] if failing else ROLES):
+            if team.approved_at.get(role) == fp:  # its critic approved exactly this package: asking again is noise
+                entry["scores"][role], entry["must_fix"][role] = team.report["phases"][role][-1]["score"], []
+                continue
             rv = _critique(s, critic, role, pkg, team.vals, team.previous.get(role))
             team.previous[role] = rv
             entry["scores"][role], fixes = _verdict(s, rv)

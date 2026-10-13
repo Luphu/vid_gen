@@ -189,5 +189,8 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
                    "scenes": [{"index": x["index"], "duration_s": x["duration_s"], "narration": x["narration"],
                                "on_screen_text": x["on_screen_text"]} for x in sc["scenes"]]}
     out["Lines"] = {"variants": [says[1]]}
+    out["ViewerReport"] = {"summary": "A paper robot fixes a broken pencil.", "payoff": "it fixes it in a second",
+                           "confusing": [], "understood": True}
+    out["ViewerMatch"] = {"match": True, "gap": ""}
     out["Review"] = {"score": 9, "criteria": [{"name": "mock", "score": 9, "note": "ok"}], "must_fix": []}
     return out

@@ -82,7 +82,8 @@ def run_lab(d: Deps, refs: list[Candidate], out: Path) -> dict:
             analysis = _analysis(d, cand, cache)
             fmt = pick_format(d.s, cand.video_id)
             res |= {"format": fmt, "analysis": analysis.model_dump(mode="json")}
-            script, ref, report = write_with_team(d.s, d.agent, d.critic, cand, analysis, fmt, checker=d.analyst)
+            script, ref, report = write_with_team(d.s, d.agent, d.critic, cand, analysis, fmt, checker=d.analyst,
+                                                  viewer=d.analyst if d.s.viewer_test else None)
             res |= {"approved": True, "prompt": ref, "team": report, "script": script.model_dump(mode="json"),
                     "keyframe_prompt": compose_keyframe_prompt(script),
                     "video_prompts": [compose_video_prompt(script, sc) for sc in script.scenes]}
@@ -136,6 +137,11 @@ def render_markdown(results: list[dict], summary: dict) -> str:
                      if team.get("final") else ""), ""]
         if team.get("escalations"):
             lines += ["Escalated to the writer: the director could not film the story.", ""]
+        viewers = [f["viewer"] for f in team.get("final", []) if f.get("viewer")]
+        if viewers:
+            v = viewers[-1]
+            lines += [f"Viewer ({'understood' if v['ok'] else 'lost'}): {v['summary']} — payoff: {v['payoff']}"
+                      + (f" — missed: {v['gap']}" if v.get("gap") and not v["ok"] else ""), ""]
         sc = r.get("script")
         if sc:
             lines += [f"**{sc['title']}** — {sc['hook']}", "", f"Trend link: {sc['trend_link']}", "",

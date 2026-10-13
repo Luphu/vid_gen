@@ -38,7 +38,7 @@ class FactCheck(BaseModel):
 
 def fact_check(checker, script: Script) -> FactCheck:
     """Independent model (NVIDIA analyst) checks every spoken/shown statement."""
-    p = prompts.load("fact_check_v1")
+    p = prompts.load("fact_check_v2")
     view = {"title": script.title, "hook": script.hook, "description": script.description,
             "scenes": [{"narration": s.narration, "on_screen_text": s.on_screen_text} for s in script.scenes]}
     out, _ = checker.structured([{"role": "user", "content": p.render(
