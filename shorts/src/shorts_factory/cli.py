@@ -247,6 +247,34 @@ def cmd_script_lab(s: Settings, args) -> int:
     return 0
 
 
+def cmd_thumbnail(s: Settings, args) -> int:
+    """Generate (if missing) and set the custom thumbnail of an uploaded video, e.g. after the channel got
+    custom-thumbnail access."""
+    d = _deps(s)
+    job = d.store.get_job(args.job)
+    up = d.store.get_stage(args.job, "upload") or {}
+    if job is None or not up.get("video_id"):
+        print("job not found or not uploaded")
+        return 2
+    script = pipeline._stored_script(d, job)
+    res = pipeline._thumbnail(d, job, script, pipeline._work(d, job))
+    if res.get("status") != "ok":
+        _print(res)
+        return 2
+    from .net import ProviderError
+
+    image = pipeline._fetch(d, res["key"], pipeline._work(d, job) / "thumbnail.jpg")
+    try:
+        d.youtube.set_thumbnail(up["video_id"], image)
+    except ProviderError as e:
+        _print({"video_id": up["video_id"], "thumbnail": res["key"], "set": False, "reason": str(e)[:300],
+                "hint": "verify the channel by phone (Studio > Settings > Channel > Feature eligibility); Shorts "
+                        "thumbnails may also need the YouTube Partner Program"})
+        return 2
+    _print({"video_id": up["video_id"], "thumbnail": res["key"], "set": True})
+    return 0
+
+
 def cmd_run(s: Settings, args) -> int:
     if args.dry_run:
         s = s.model_copy(update={"dry_run": True})
@@ -426,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
     sm.add_argument("--i-accept-cost", action="store_true")
     sm.add_argument("--resolution", default=None, help="default: provider resolution (e.g. 480p for cheapest)")
     sub.add_parser("discover")
+    th = sub.add_parser("thumbnail", help="generate (if missing) and set the custom thumbnail of an uploaded video")
+    th.add_argument("job")
     lb = sub.add_parser("script-lab", help="tune script prompts: agent team on several references, report only "
                                           "(no jobs, no video, image or speech)")
     lb.add_argument("--count", type=int, default=3)
@@ -473,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         s = load_settings()
         handlers = {"doctor": cmd_doctor, "smoke-test": cmd_smoke, "discover": cmd_discover, "run": cmd_run,
-                    "script-lab": cmd_script_lab,
+                    "script-lab": cmd_script_lab, "thumbnail": cmd_thumbnail,
                     "status": cmd_status, "review": cmd_review, "approve": cmd_approve, "reject": cmd_reject,
                     "retry": cmd_retry, "reconcile": cmd_reconcile, "resolve-op": cmd_resolve_op,
                     "auth": cmd_auth, "purge": cmd_purge, "migrate": cmd_migrate,

@@ -23,6 +23,9 @@ from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
+from . import prompts
 from .agents import TeamRejected, write_with_team
 from .analysis import analyze_full_media, analyze_metadata_only, analyze_public_signals
 from .budget import BudgetGuard
@@ -40,6 +43,7 @@ from .render import RenderInputs, expected_audio, render
 from .scripting import (
     ScriptRejected,
     compose_keyframe_prompt,
+    compose_thumbnail_prompt,
     compose_video_prompt,
     frames_for,
     generate_script,
@@ -83,6 +87,7 @@ class Deps:
     agent: Any = None    # SCRIPT_ENGINE=team: writer/director/editor model (NVIDIA)
     critic: Any = None   # SCRIPT_ENGINE=team: critics (a different NVIDIA model)
     image: Any = None    # text-to-image for the i2v_chain keyframe
+    thumbnailer: Any = None  # text-to-image for the video's cover (NVIDIA flux.1-dev)
     video: Any = None
     tts: TTS | None = None
     trends: TrendSource | None = None
@@ -561,6 +566,7 @@ def stage_render(d: Deps, job: Job) -> Job:
         narr.append(p)
     music = _music(d, work)
     out, shots, pause = render(d.s, d.ff, script, RenderInputs(scenes, narr, music), work / "render")
+    thumb = _thumbnail(d, job, script, work)
     key = f"jobs/{job.id}/final.mp4"
     d.artifacts.put_file(key, out, "video/mp4")
     sha = hashlib.sha256()
@@ -572,7 +578,57 @@ def stage_render(d: Deps, job: Job) -> Job:
         "expect_audio": expected_audio(narr, music), "narration": any(narr), "music": d.s.music_file_key or None,
         "edit": {"shots": len(shots), "avg_shot_s": round(sum(shots) / max(1, len(shots)), 2),
                  "first_shot_s": shots[0] if shots else None,
-                 "narration_max_pause_s": round(pause, 2) if pause is not None else None}})
+                 "narration_max_pause_s": round(pause, 2) if pause is not None else None},
+        "thumbnail": thumb})
+
+
+class _Rephrased(BaseModel):
+    prompt: str = Field(min_length=20, max_length=2000)
+
+
+def _rephrase_for_filter(d: Deps, prompt: str) -> str | None:
+    p = prompts.load("thumb_rephrase_v1")
+    try:
+        out, _ = d.analyst.structured([{"role": "user", "content": p.render(prompt_json=prompts.untrusted(prompt))}],
+                                      _Rephrased, max_tokens=800)
+        return out.prompt
+    except (StructuredOutputError, ProviderError, BudgetExceeded) as e:
+        log.warning("thumbnail prompt rephrase failed: %s", e)
+        return None
+
+
+def _thumbnail(d: Deps, job: Job, script: Script, work: Path) -> dict:
+    """Cover image for the video; never blocks the job (a video without a custom thumbnail is still fine)."""
+    key = f"jobs/{job.id}/thumbnail.jpg"
+    if not d.s.thumbnails or d.thumbnailer is None:
+        return {"status": "off"}
+    if d.artifacts.exists(key):
+        return {"status": "ok", "key": key}
+    prompt = compose_thumbnail_prompt(script)
+    local, problems = work / "thumbnail.jpg", []
+    for attempt in range(d.s.thumbnail_attempts):
+        try:
+            d.thumbnailer.generate(prompt, local, seed=int(hashlib.sha256(f"{job.id}:thumb:{attempt}".encode())
+                                                          .hexdigest()[:8], 16))
+        except (ProviderError, BudgetExceeded) as e:
+            problems.append(f"attempt {attempt}: {e}"[:200])
+            if "CONTENT_FILTERED" in str(e) and d.analyst is not None:
+                prompt = _rephrase_for_filter(d, prompt) or prompt  # the filter reacts to words like "T-rex"
+            continue
+        if d.vision is not None and d.s.check_lettering:
+            text, where = has_lettering(d.vision, local)
+            if text:
+                problems.append(f"attempt {attempt}: lettering {where}"[:200])
+                continue
+        if d.vision is not None and d.s.check_props and script.key_props:
+            gone = missing_props(d.vision, [local], script.key_props)
+            if gone:
+                problems.append(f"attempt {attempt}: missing {gone}"[:200])
+                continue
+        d.artifacts.put_file(key, local, "image/jpeg")
+        return {"status": "ok", "key": key, "attempts": attempt + 1, "prompt": prompt[:500], "problems": problems}
+    log.warning("job %s: no usable thumbnail (%s)", job.id, problems)
+    return {"status": "failed", "problems": problems}
 
 
 def stage_validate(d: Deps, job: Job) -> Job:
@@ -668,6 +724,14 @@ def stage_upload(d: Deps, job: Job) -> Job:
         return d.store.transition(job, JobState.UPLOAD_UNKNOWN, reason=str(e)[:1000])
     except BudgetExceeded as e:
         raise Deferred(str(e)) from e
+    thumb = (r.get("thumbnail") or {})
+    if thumb.get("status") == "ok":  # non-fatal: Shorts thumbnails need a channel with custom-thumbnail access
+        try:
+            d.youtube.set_thumbnail(vid, _fetch(d, thumb["key"], _work(d, job) / "thumbnail.jpg"))
+            notes.append("custom thumbnail set")
+        except (ProviderError, BudgetExceeded) as e:
+            notes.append(f"custom thumbnail not set ({str(e)[:200]}); the image is {thumb['key']} — set it in "
+                         "YouTube Studio if the channel has custom thumbnails")
     return d.store.transition(job, JobState.UPLOADED, stage="upload",
                               payload={"video_id": vid, "request": req.model_dump(mode="json"), "notes": notes})
 

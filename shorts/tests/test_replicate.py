@@ -192,3 +192,29 @@ def test_signed_third_party_outputs_get_no_token(tmp_path):
     assert seen[1][1].startswith("Bearer r8_")
     with pytest.raises(ProviderError, match="unexpected output host"):
         rc.download("https://evil.example/x", tmp_path / "c", 10_000)
+
+
+def test_nvidia_flux_thumbnail_client(tmp_path):
+    import base64 as b64
+
+    from shorts_factory.providers.nim_image import NimImageClient
+
+    jpeg = b"\xff\xd8\xff" + b"j" * 3000
+    replies = iter([{"artifacts": [{"base64": b64.b64encode(jpeg).decode(), "finishReason": "SUCCESS", "seed": 3}]},
+                    {"artifacts": [{"base64": "", "finishReason": "CONTENT_FILTERED"}]}])
+    seen = []
+
+    def h(req):
+        body = json.loads(req.content)
+        seen.append(body)
+        assert req.url.path.endswith("/flux.1-dev") and req.headers["Authorization"].startswith("Bearer nvapi-")
+        return httpx.Response(200, json=next(replies))
+    s = load_settings({"NVIDIA_API_KEY": "nvapi-test-0000000000000000", "BUDGET_THUMBNAIL_REQUESTS_PER_DAY": "2"})
+    c = NimImageClient(s, BudgetGuard(_store(), s.budget), client=httpx.Client(transport=httpx.MockTransport(h)))
+    c.generate("a raccoon", tmp_path / "t.jpg", seed=7)
+    assert (tmp_path / "t.jpg").read_bytes() == jpeg
+    assert seen[0]["width"] == 768 and seen[0]["height"] == 1344 and seen[0]["steps"] >= 5
+    with pytest.raises(ProviderError, match="CONTENT_FILTERED"):
+        c.generate("a raccoon", tmp_path / "u.jpg", seed=8)
+    with pytest.raises(BudgetExceeded):
+        c.generate("a raccoon", tmp_path / "v.jpg")

@@ -193,5 +193,6 @@ def default_mock_responses(language: str = "ru") -> dict[str, dict]:
     out["ViewerReport"] = {"summary": "A paper robot fixes a broken pencil.", "payoff": "it fixes it in a second",
                            "confusing": [], "understood": True}
     out["ViewerMatch"] = {"match": True, "gap": ""}
+    out["_Rephrased"] = {"prompt": "a grey pigeon holding a small toy dinosaur in its beak, plain words, no text"}
     out["Review"] = {"score": 9, "criteria": [{"name": "mock", "score": 9, "note": "ok"}], "must_fix": []}
     return out

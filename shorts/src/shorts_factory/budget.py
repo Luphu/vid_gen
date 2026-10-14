@@ -16,6 +16,7 @@ BUCKETS = {
     "vision": ("vision_requests_per_day", "utc"),
     "video": ("video_requests_per_day", "utc"),
     "image": ("image_requests_per_day", "utc"),
+    "thumbnail": ("thumbnail_requests_per_day", "utc"),
     "tts": ("tts_requests_per_day", "utc"),
     "yt_search": ("yt_search_calls_per_day", "pt"),
     "yt_units": ("yt_units_per_day", "pt"),

@@ -12,7 +12,7 @@ CHANNEL = "UCtestchannel00000000001"
 
 class FakeYouTube:
     def __init__(self, chunk_failures: int = 0, lose_final_response: bool = False, expire_session: bool = False,
-                 existing_title: str | None = None, processing: str = "succeeded"):
+                 existing_title: str | None = None, processing: str = "succeeded", thumbnail_status: int = 200):
         self.sessions: dict[str, dict] = {}
         self.videos: dict[str, dict] = {}
         self.inits = 0
@@ -21,6 +21,8 @@ class FakeYouTube:
         self.lose_final_response = lose_final_response
         self.expire_session = expire_session
         self.processing = processing
+        self.thumbnail_status = thumbnail_status
+        self.thumbnails: dict[str, bytes] = {}
         if existing_title:
             self.videos["existing001"] = {"title": existing_title}
 
@@ -47,6 +49,14 @@ class FakeYouTube:
             return httpx.Response(200, json={"items": [{"id": vid, "status": {"uploadStatus": "processed",
                                                                                "privacyStatus": "private"},
                                                         "processingDetails": {"processingStatus": self.processing}}]})
+        if req.method == "POST" and u.path.endswith("/thumbnails/set"):
+            vid = dict(u.params)["videoId"]
+            if self.thumbnail_status != 200:
+                return httpx.Response(self.thumbnail_status, json={"error": {"message": "custom thumbnails are not "
+                                                                                       "available for this channel"}})
+            assert vid in self.videos and req.headers["Content-Type"] in ("image/jpeg", "image/png")
+            self.thumbnails[vid] = req.content
+            return httpx.Response(200, json={"items": [{"default": {"url": "https://i.ytimg.com/x.jpg"}}]})
         if req.method == "POST" and u.path.endswith("/upload/videos"):
             assert dict(u.params)["uploadType"] == "resumable"
             meta = json.loads(req.content)

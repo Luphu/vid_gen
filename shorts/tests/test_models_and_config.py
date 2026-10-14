@@ -343,3 +343,14 @@ def test_description_has_no_ai_sentence_but_the_api_flag_stays():
     on = load_settings({"PUBLISH_MADE_FOR_KIDS": "false", "YOUTUBE_CHANNEL_ID": "UCx", "DESCRIPTION_AI_NOTE": "true"})
     with_note, _ = build_upload_request(on, st, Script.model_validate(SCRIPT))
     assert SCRIPT["disclosure"]["disclosure_text"] in with_note.description
+
+
+def test_thumbnail_prompt_uses_the_climax_hero_props_and_no_text():
+    from shorts_factory.scripting import compose_thumbnail_prompt
+
+    data = copy.deepcopy(SCRIPT)
+    data["key_props"] = ["a broken yellow pencil"]
+    s = Script.model_validate(data)
+    p = compose_thumbnail_prompt(s)
+    assert s.scenes[-1].generation_prompt.split(";")[0].rstrip(".") in p and s.subject.rstrip(".") in p
+    assert "Clearly visible: a broken yellow pencil" in p and "No text" in p and "9:16" in p

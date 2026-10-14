@@ -204,7 +204,8 @@ def test_real_upload_path_with_fake_youtube_private_first(settings_env):
                YOUTUBE_CLIENT_ID="cid", YOUTUBE_CLIENT_SECRET="csecret", YOUTUBE_REFRESH_TOKEN="1//refresh-abcdefghijk",
                UPLOAD_URI_KEY=base64.b64encode(os.urandom(32)).decode(),
                YOUTUBE_API_BASE="https://api.fake/youtube/v3", YOUTUBE_UPLOAD_URL="https://api.fake/upload/videos",
-               YOUTUBE_TOKEN_URL="https://api.fake/token", UPLOAD_CHUNK_BYTES=str(256 * 1024))
+               YOUTUBE_TOKEN_URL="https://api.fake/token", UPLOAD_CHUNK_BYTES=str(256 * 1024),
+               YOUTUBE_THUMBNAIL_URL="https://api.fake/upload/thumbnails/set", THUMBNAILS="true")
     s = load_settings(env)
     d = make_deps(s)
     fake = FakeYouTube()
@@ -219,6 +220,10 @@ def test_real_upload_path_with_fake_youtube_private_first(settings_env):
     assert meta["status"]["selfDeclaredMadeForKids"] is False and meta["status"]["containsSyntheticMedia"] is True
     assert "сгенерирован" not in meta["snippet"]["description"]  # owner: no AI sentence; the flag above labels it
     job = _job(d)
+    thumb = d.store.get_stage(job.id, "render")["thumbnail"]
+    assert thumb["status"] == "ok" and d.artifacts.exists(thumb["key"])
+    assert list(fake.thumbnails) == [d.store.get_stage(job.id, "upload")["video_id"]]
+    assert "custom thumbnail set" in d.store.get_stage(job.id, "upload")["notes"]
     with pytest.raises(ValueError, match="duplicate"):
         pipeline.retry(d.store, job.id, "render")
     pipeline.run_once(d)
@@ -520,3 +525,49 @@ def test_overloaded_text_model_defers_the_script_stage(settings_env):
     d.agent = Busy()
     res = pipeline.run_once(d)
     assert res["state"] == "analyzed" and "deferred" in (res["reason"] or "")
+
+
+def test_refused_thumbnail_does_not_block_the_upload(settings_env):
+    env = dict(settings_env, DRY_RUN="false", PUBLISH_MADE_FOR_KIDS="false", YOUTUBE_CHANNEL_ID=CHANNEL,
+               YOUTUBE_CLIENT_ID="cid", YOUTUBE_CLIENT_SECRET="csecret", YOUTUBE_REFRESH_TOKEN="1//refresh-abcdefghijk",
+               UPLOAD_URI_KEY=base64.b64encode(os.urandom(32)).decode(),
+               YOUTUBE_API_BASE="https://api.fake/youtube/v3", YOUTUBE_UPLOAD_URL="https://api.fake/upload/videos",
+               YOUTUBE_TOKEN_URL="https://api.fake/token", YOUTUBE_THUMBNAIL_URL="https://api.fake/upload/thumbnails/set",
+               THUMBNAILS="true")
+    s = load_settings(env)
+    d = make_deps(s)
+    fake = FakeYouTube(thumbnail_status=403)
+    http = httpx.Client(transport=fake.transport())
+    d.youtube = YouTubeClient(s, d.store, d.budget, TokenProvider(http, s.youtube_token_url, "cid", "csecret",
+                                                                  "1//refresh-abcdefghijk"),
+                              http, SessionCipher(s.upload_uri_key.get_secret_value()), sleep=lambda _: None)
+    assert pipeline.run_once(d)["state"] == "published"
+    notes = d.store.get_stage(_job(d).id, "upload")["notes"]
+    assert any(n.startswith("custom thumbnail not set") and "HTTP 403" in n for n in notes)
+
+
+def test_content_filtered_thumbnail_prompt_is_rephrased(settings_env, tmp_path):
+    from shorts_factory.net import ProviderError
+
+    d = _deps(settings_env, THUMBNAILS="true")
+    prompts_seen = []
+
+    class Picky:
+        def generate(self, prompt, out, seed=None):
+            prompts_seen.append(prompt)
+            if "T-rex" in prompt:
+                raise ProviderError("flux.1-dev: finishReason CONTENT_FILTERED")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            d.ff.run(["-f", "lavfi", "-i", "testsrc2=size=192x320:rate=1", "-frames:v", "1", str(out)])
+            return "ok"
+    d.thumbnailer = Picky()
+    assert pipeline.run_once(d)["state"] == "done_dry_run"
+    job = _job(d)
+    script = pipeline._stored_script(d, job)
+    sc = script.model_copy(update={"key_props": []})
+    sc.scenes[-1].generation_prompt = "the subject meets a T-rex toy, slow push-in at desk level"
+    import dataclasses
+
+    res = pipeline._thumbnail(d, dataclasses.replace(job, id="other"), sc, tmp_path)
+    assert res["status"] == "ok" and res["attempts"] == 2 and "CONTENT_FILTERED" in res["problems"][0]
+    assert "T-rex" in prompts_seen[-2] and "T-rex" not in prompts_seen[-1]
