@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 ROLES = ("writer", "director", "editor")
 # prompt versions per role (prompts/agent_<role>_v<N>.md, prompts/critic_<role>_v<N>.md)
 AGENT_VERSIONS = {"writer": 3, "director": 4, "editor": 4}
-CRITIC_VERSIONS = {"writer": 4, "director": 5, "editor": 5}
+CRITIC_VERSIONS = {"writer": 4, "director": 6, "editor": 5}
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
 
@@ -338,6 +338,9 @@ def _author(s: Settings, client, role: str, vals: dict, out: dict, notes: list[s
     p = prompts.load(f"agent_{role}_v{AGENT_VERSIONS[role]}")
     messages = [{"role": "user", "content": p.render(**vals, **data)}]
     prev = out.get(role)
+    if prev is not None and role != "writer" and "writer" in out and \
+            [sc.index for sc in prev.scenes] != [sc.index for sc in out["writer"].scenes]:  # type: ignore
+        prev = None  # the story's scene list changed: a fresh plan, not a revision of the old one
     if prev is not None:
         ask = ("Your critic and the automatic checks require: " + " | ".join(notes)) if notes else \
             "Another team member changed the input above."
@@ -535,7 +538,9 @@ def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: 
         return TeamRejected(msg, report)
 
     # 1-3: each role works on locked upstream work until its critic approves
-    escalated = False
+    escalated: set[str] = set()
+    why = {"director": "could not make this story filmable",
+           "editor": "could not make the voice-over land (an ending or payoff problem is the story's)"}
     i = 0
     while i < len(ROLES):
         role = ROLES[i]
@@ -543,17 +548,19 @@ def write_with_team(s: Settings, agent, critic, candidate: Candidate, analysis: 
             i += 1
             continue
         last = team.report["phases"][role][-1]
-        if role == "director" and not escalated:
-            # the shots may be impossible because of the story itself: the screenwriter rewrites it once
-            escalated = True
-            notes = ["The director could not make this story filmable; the director's critic says: "
+        if role in why and role not in escalated:
+            # the problem may be in the story itself: the screenwriter rewrites it once, later roles start over
+            escalated.add(role)
+            notes = [f"The {role} {why[role]}; the {role}'s critic says: "
                      + " | ".join(last.get("must_fix") or last.get("checks") or [])]
-            team.report["escalations"].append({"from": "director", "notes": notes})
-            log.info("team: director phase failed; the screenwriter rewrites the story")
+            team.report["escalations"].append({"from": role, "notes": notes})
+            log.info("team: %s phase failed; the screenwriter rewrites the story", role)
             if not team.phase("writer", notes):
                 raise reject(f"writer critic did not approve the rewrite: {team.report['phases']['writer'][-1]}")
-            del team.out["director"]
-            team.previous.pop("director", None)
+            for later in ROLES[1:]:
+                team.out.pop(later, None)
+                team.previous.pop(later, None)
+            i = 1
             continue
         raise reject(f"{role} critic did not approve after {s.agent_max_rounds} rounds: {last}")
     # 4: final gate - every critic scores the final package (the exact prompts) in the same round

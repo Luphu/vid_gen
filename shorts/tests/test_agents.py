@@ -142,12 +142,12 @@ def test_invalid_author_output_gets_one_more_attempt():
 
 def test_one_weak_criterion_blocks_approval_even_with_a_high_score():
     weak = {"score": 9, "criteria": [{"name": "hook", "score": 9, "note": "ok"},
-                                     {"name": "language", "score": 6, "note": "«высокой пять» is not Russian"}],
+                                     {"name": "language", "score": 5, "note": "«высокой пять» is not Russian"}],
             "must_fix": []}
     agent, critic = Fake(), Fake(Review=[weak, _rv(9)])
     _, ref, report = write_with_team(_s(), agent, critic, CAND, AN, "x")
     w = report["phases"]["writer"]
-    assert w[0]["score"] == 7 and "language scored 6/10" in w[0]["must_fix"][0] and w[1]["score"] == 9
+    assert w[0]["score"] == 7 and "language scored 5/10" in w[0]["must_fix"][0] and w[1]["score"] == 9
     assert "высокой пять" in agent.calls[1][1][-1]["content"] and "critic_writer@v4" in ref
     with pytest.raises(TeamRejected):  # a review without per-criterion scores is not an approval
         write_with_team(_s(), Fake(), Fake(Review=[{"score": 10, "criteria": [], "must_fix": []}]), CAND, AN, "x")
@@ -248,3 +248,37 @@ def test_edu_doubtful_fact_goes_back_to_the_writer_before_the_director_works():
     w = report["phases"]["writer"]
     assert "air pockets" in w[0]["checks"][0] and "score" not in w[0] and w[1]["score"] == 9
     assert agent.roles()[:3] == ["Story", "Story", "ShotPlan"]
+
+
+def test_a_six_without_blocking_defects_is_polish_not_a_rejection():
+    polish = {"score": 8, "criteria": [{"name": "packaging", "score": 6, "note": "slightly technical"},
+                                       {"name": "hook", "score": 9, "note": "ok"}], "must_fix": []}
+    _, _, report = write_with_team(_s(), Fake(), Fake(Review=[polish]), CAND, AN, "x")
+    assert report["phases"]["writer"][0]["score"] == 8
+
+
+def test_editor_that_cannot_land_the_ending_escalates_to_the_writer_once():
+    no = _rv(6, "the last line does not land the payoff")
+    # writer ok, director ok, editor fails 3x -> writer rewrite ok, director ok, editor ok, final gate
+    critic = Fake(Review=[_rv(9), _rv(9), no, no, no, _rv(9), _rv(9), _rv(9)])
+    agent = Fake()
+    _, _, report = write_with_team(_s(), agent, critic, CAND, AN, "x")
+    assert [e["from"] for e in report["escalations"]] == ["editor"]
+    assert agent.roles() == ["Story", "ShotPlan", "Edit", "Edit", "Edit", "Story", "ShotPlan", "Edit"]
+    assert "payoff" in agent.calls[5][1][-1]["content"] and len(agent.calls[6][1]) == 1  # fresh director
+
+
+def test_director_starts_fresh_when_the_story_changes_its_scene_count():
+    from shorts_factory.agents import ShotPlan, Story, _author, _values
+
+    shorter = copy.deepcopy(MOCK["Story"])
+    shorter["scenes"] = shorter["scenes"][:2]
+    s = _s()
+    vals = _values(s, {"topic": "t"}, "x")
+    out = {"writer": Story.model_validate(shorter), "director": ShotPlan.model_validate(MOCK["ShotPlan"])}
+    agent = Fake()
+    _author(s, agent, "director", vals, out, ["The writer's work changed; adapt yours to it."])
+    assert len(agent.calls[0][1]) == 1  # a fresh plan for 2 scenes, not a revision of the old 3-shot plan
+    same = {"writer": Story.model_validate(MOCK["Story"]), "director": ShotPlan.model_validate(MOCK["ShotPlan"])}
+    _author(s, agent, "director", vals, same, ["fix scene 1"])
+    assert agent.calls[1][1][-2]["role"] == "assistant"  # same scenes: a normal revision
