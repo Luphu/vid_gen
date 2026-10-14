@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 ROLES = ("writer", "director", "editor")
 # prompt versions per role (prompts/agent_<role>_v<N>.md, prompts/critic_<role>_v<N>.md)
 AGENT_VERSIONS = {"writer": 3, "director": 4, "editor": 4}
-CRITIC_VERSIONS = {"writer": 4, "director": 5, "editor": 5}
+CRITIC_VERSIONS = {"writer": 4, "director": 6, "editor": 5}
 MIN_SCENE_S = 2.0  # shorter than one cut of the dynamic edit
 
 
@@ -338,6 +338,9 @@ def _author(s: Settings, client, role: str, vals: dict, out: dict, notes: list[s
     p = prompts.load(f"agent_{role}_v{AGENT_VERSIONS[role]}")
     messages = [{"role": "user", "content": p.render(**vals, **data)}]
     prev = out.get(role)
+    if prev is not None and role != "writer" and "writer" in out and \
+            [sc.index for sc in prev.scenes] != [sc.index for sc in out["writer"].scenes]:  # type: ignore
+        prev = None  # the story's scene list changed: a fresh plan, not a revision of the old one
     if prev is not None:
         ask = ("Your critic and the automatic checks require: " + " | ".join(notes)) if notes else \
             "Another team member changed the input above."

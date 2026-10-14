@@ -266,3 +266,19 @@ def test_editor_that_cannot_land_the_ending_escalates_to_the_writer_once():
     assert [e["from"] for e in report["escalations"]] == ["editor"]
     assert agent.roles() == ["Story", "ShotPlan", "Edit", "Edit", "Edit", "Story", "ShotPlan", "Edit"]
     assert "payoff" in agent.calls[5][1][-1]["content"] and len(agent.calls[6][1]) == 1  # fresh director
+
+
+def test_director_starts_fresh_when_the_story_changes_its_scene_count():
+    from shorts_factory.agents import ShotPlan, Story, _author, _values
+
+    shorter = copy.deepcopy(MOCK["Story"])
+    shorter["scenes"] = shorter["scenes"][:2]
+    s = _s()
+    vals = _values(s, {"topic": "t"}, "x")
+    out = {"writer": Story.model_validate(shorter), "director": ShotPlan.model_validate(MOCK["ShotPlan"])}
+    agent = Fake()
+    _author(s, agent, "director", vals, out, ["The writer's work changed; adapt yours to it."])
+    assert len(agent.calls[0][1]) == 1  # a fresh plan for 2 scenes, not a revision of the old 3-shot plan
+    same = {"writer": Story.model_validate(MOCK["Story"]), "director": ShotPlan.model_validate(MOCK["ShotPlan"])}
+    _author(s, agent, "director", vals, same, ["fix scene 1"])
+    assert agent.calls[1][1][-2]["role"] == "assistant"  # same scenes: a normal revision
