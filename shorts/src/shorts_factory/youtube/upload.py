@@ -87,6 +87,19 @@ class YouTubeClient:
                             f"{self.s.youtube_channel_id}; refusing to upload")
         return ch
 
+    def set_thumbnail(self, video_id: str, image: Path) -> None:
+        """thumbnails.set (scope youtube.upload, ~50 quota units). YouTube may refuse it for Shorts or for channels
+        without custom-thumbnail access: the caller treats any error as non-fatal."""
+        self.budget.reserve("yt_units", 50)
+        data = image.read_bytes()
+        ctype = "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"
+        resp = send_with_retry(lambda: self.http.post(
+            self.s.youtube_thumbnail_url, params={"videoId": video_id, "uploadType": "media"}, content=data,
+            headers={**self.tokens.headers(), "Content-Type": ctype}),
+            RetryPolicy(max_retries=2), what="youtube thumbnails.set", sleep=self.sleep)
+        if resp.status_code != 200:
+            raise ProviderError(f"thumbnails.set: HTTP {resp.status_code}: {resp.text[:300]}", status=resp.status_code)
+
     def processing_status(self, video_id: str) -> dict:
         items = self._api_get("videos", {"part": "status,processingDetails", "id": video_id}).get("items", [])
         if not items:

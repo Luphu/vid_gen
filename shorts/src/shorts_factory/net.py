@@ -101,7 +101,7 @@ def send_with_retry(
         else:
             s = resp.status_code
             if s in (401, 403):
-                raise AuthError(f"{what}: HTTP {s} (check API key / entitlement)", status=s)
+                raise AuthError(f"{what}: HTTP {s} (check API key / entitlement): {_reason(resp)}", status=s)
             retryable = s in (429, 503) or (s in (500, 502, 504) and not policy.billable)
             if s in (500, 502, 504) and policy.billable:
                 rid = resp.headers.get("NVCF-REQID")
@@ -119,6 +119,16 @@ def send_with_retry(
             log.warning("%s: HTTP %s, retry %d in %.1fs", what, s, attempt + 1, d)
         attempt += 1
         sleep(d)
+
+
+def _reason(resp: httpx.Response) -> str:
+    """The provider's own short error message (e.g. YouTube 'doesn't have permissions to ... thumbnails')."""
+    try:
+        err = resp.json().get("error")
+        msg = err.get("message") if isinstance(err, dict) else err
+    except (ValueError, AttributeError):
+        msg = None
+    return str(msg or resp.text or "")[:200]
 
 
 def make_client(connect_s: float, read_s: float, **kw) -> httpx.Client:

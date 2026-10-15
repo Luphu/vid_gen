@@ -43,6 +43,7 @@ class Budget(BaseModel):
     text_requests_per_day: int = 300  # agent team: up to ~30 calls per script
     vision_requests_per_day: int = 60
     image_requests_per_day: int = 30
+    thumbnail_requests_per_day: int = 20
     tts_requests_per_day: int = 40
     video_requests_per_day: int = 0
     video_requests_per_job: int = 6
@@ -80,6 +81,7 @@ class Settings(BaseModel):
     # gemma-3-12b-it and vila return 404 (not enabled), llama-3.2-90b / gemma-4 / nemotron omni time out
     nim_vision_model: str = "meta/llama-3.2-11b-vision-instruct"
     nim_vision_input: Literal["image_url", "video_frames"] = "image_url"
+    nim_image_url: str = "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev"
     nim_video_url: str = ""  # no default on purpose: hosted cosmos3-nano URL is not documented
     nim_video_async_status_url: str = ""  # e.g. https://.../status/{request_id}; empty = no polling
     nim_video_resolution: str = "720_9_16"
@@ -115,6 +117,13 @@ class Settings(BaseModel):
     max_keyframe_attempts: int = 3
     # Quality gates using the NVIDIA models: lettering in generated images/clips, factual claims in the script
     check_lettering: bool = True
+    # thumbnail: NVIDIA flux.1-dev cover image from the script (same hero/props/style), checked for lettering and
+    # key props, set via thumbnails.set after upload (non-fatal: YouTube may refuse it for Shorts/unverified channels)
+    thumbnails: bool = True
+    thumbnail_width: int = 768
+    thumbnail_height: int = 1344
+    thumbnail_steps: int = 28
+    thumbnail_attempts: int = 3
     # key story props must be visible: opening image and two frames of every clip (vision model, calibrated 12/12)
     check_props: bool = True
     # lettering still found on the last paid attempt: "review" stops for a human (it may be a brand);
@@ -266,6 +275,7 @@ class Settings(BaseModel):
     youtube_channel_id: str = ""
     youtube_api_base: str = "https://www.googleapis.com/youtube/v3"
     youtube_upload_url: str = "https://www.googleapis.com/upload/youtube/v3/videos"
+    youtube_thumbnail_url: str = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
     youtube_token_url: str = "https://oauth2.googleapis.com/token"  # noqa: S105 (URL, not a secret)
     youtube_category_id: str = "28"  # Science & Technology
     upload_chunk_bytes: int = 8 * 1024 * 1024

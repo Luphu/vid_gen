@@ -187,6 +187,20 @@ def compose_keyframe_prompt(script: Script) -> str:
             "clean image with no lettering, no signs, no captions, no logos and no watermark.")
 
 
+def compose_thumbnail_prompt(script: Script) -> str:
+    """Cover image: the story's climax with the same hero, props and style as the video, built to stop a scroll."""
+    climax = script.scenes[-1]
+    action = climax.generation_prompt.split(";")[0].strip().rstrip(".")
+    state = f", {climax.subject_state.strip().rstrip('.')}" if climax.subject_state else ""
+    props = f"Clearly visible: {', '.join(script.key_props)}. " if script.key_props else ""
+    return (f"Eye-catching vertical cover image for a short video, one striking moment: {action}. "
+            f"Main subject: {script.subject.strip().rstrip('.')}{state}. {props}"
+            f"Setting: {script.setting.strip().rstrip('.')}. Style: {script.visual_style.strip().rstrip('.')}, bold "
+            "saturated colors, high contrast, dramatic rim lighting, the subject large and close to the camera with "
+            "a strong expressive face, simple uncluttered background, vertical 9:16 composition. "
+            "No text, no letters, no captions, no logos and no watermark.")
+
+
 def compose_video_prompt(script: Script, scene) -> str:
     """Deterministic final prompt: identical subject/style text in every scene keeps them consistent.
 
