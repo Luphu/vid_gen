@@ -49,8 +49,13 @@ nodes:
   rpi2: 192.168.100.72
   rpi3: 192.168.100.73
 
+# Внешний сервер: мониторим прямым скрейпом его node_exporter (job=server-node).
+server:
+  host: server
+  address: 91.219.148.43:9100
+
 tunnel:
-  enabled: true
+  enabled: false   # прямой скрейп сервера — обратный туннель больше не нужен
   server: ubuntu@89.169.147.238
   remotePort: 18428       # на 127.0.0.1 сервера; туда пишет vmagent
   resources:

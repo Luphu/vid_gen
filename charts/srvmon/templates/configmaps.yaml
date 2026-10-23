@@ -9,6 +9,10 @@ data:
       scrape_interval: 1m
       scrape_timeout: 30s
     scrape_configs:
+      - job_name: server-node
+        static_configs:
+          - targets: ["{{ .Values.server.address }}"]
+            labels: { host: {{ .Values.server.host }} }
       - job_name: rpi-node
         static_configs:
           {{- range $host, $ip := .Values.nodes }}

@@ -82,14 +82,14 @@ groups:
             absent(node_cpu_seconds_total{job="server-node",mode="idle"})
             or absent(node_memory_MemAvailable_bytes{job="server-node"})
             or absent(node_memory_MemTotal_bytes{job="server-node"})
-            or absent(node_network_receive_bytes_total{job="server-node",device="eth0"})
+            or absent(node_network_receive_bytes_total{job="server-node",device="ens3"})
             or absent(node_disk_reads_completed_total{job="server-node"})
           ) and on() (count(up{job="server-node"} == 1) > 0)
         for: 5m
         labels: { severity: warning, host: server, component: anomaly }
         annotations:
           summary: "Пустые/NaN значения ключевых метрик"
-          description: "Сервер отвечает, но часть метрик (CPU, RAM, сеть eth0 или диски) отсутствует."
+          description: "Сервер отвечает, но часть метрик (CPU, RAM, сеть ens3 или диски) отсутствует."
       - alert: CounterReset
         expr: |
           sum(resets({job="server-node", __name__=~"node_network_(receive|transmit)_bytes_total|node_disk_(reads|writes)_completed_total"}[10m])) > 0
@@ -98,11 +98,11 @@ groups:
           summary: "Сброс счётчиков на сервере"
           description: "Счётчики трафика/IOPS сбросились ({{ $value }} шт. за 10 мин) — обычно перезагрузка сервера или перезапуск node_exporter. Точки в отчёте будут помечены."
       - alert: ZeroInboundTraffic
-        expr: rate(node_network_receive_bytes_total{job="server-node", device="eth0"}[5m]) == 0
+        expr: rate(node_network_receive_bytes_total{job="server-node", device="ens3"}[5m]) == 0
         for: 15m
         labels: { severity: critical, host: server, component: anomaly }
         annotations:
-          summary: "Нулевой входящий трафик на eth0 более 15 минут"
+          summary: "Нулевой входящий трафик на ens3 более 15 минут"
           description: "Внешний интерфейс сервера не принимает трафик."
       - alert: ServerDiskAlmostFull
         expr: (1 - node_filesystem_avail_bytes{job="server-node",mountpoint="/"} / node_filesystem_size_bytes{job="server-node",mountpoint="/"}) * 100 > 95
